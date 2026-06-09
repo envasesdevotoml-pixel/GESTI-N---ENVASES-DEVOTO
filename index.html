@@ -441,7 +441,17 @@ async function guardarPedido(){
   const vendedor=vendedores[vendedorIdx]||null;
   const clienteNombre=document.getElementById("pCliente").value.trim();
   const clienteTelefono=document.getElementById("pTelefono").value.trim();
+let clienteExistente = null;
 
+if(sb && clienteNombre){
+  const {data} = await sb
+    .from("clientes")
+    .select("*")
+    .or(`nombre.ilike.${clienteNombre},telefono.eq.${clienteTelefono}`)
+    .maybeSingle();
+
+  clienteExistente = data;
+}
   if(!clienteNombre) return alert("Falta el cliente.");
   if(!vendedor) return alert("Seleccioná un vendedor.");
 
@@ -451,6 +461,7 @@ async function guardarPedido(){
     const {data: pedidoGuardado, error: errorPedido} = await sb
       .from("pedidos")
       .insert({
+        cliente_id: clienteExistente ? clienteExistente.id : null,
         cliente_nombre: clienteNombre,
         cliente_telefono: clienteTelefono,
         vendedor_nombre: vendedor.nombre,
