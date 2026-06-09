@@ -178,7 +178,8 @@
       <div class="card">
         <div class="warning">Pensado para pedidos que llegan por WhatsApp: elegís vendedor, cargás cliente y vas agregando productos rápido por SKU, código de barras o nombre.</div>
         <div class="pedido-head">
-          <input id="pCliente" placeholder="Cliente / Razón social">
+          <input id="pCliente" list="clientesList" placeholder="Cliente / Razón social" oninput="sugerirCliente()" onblur="seleccionarClienteSiCoincide()">
+          <datalist id="clientesList"></datalist>
           <input id="pTelefono" placeholder="WhatsApp / Teléfono">
           <select id="pVendedor"></select>
           <select id="pEstado">
@@ -476,6 +477,18 @@ async function guardarPedido(){
       .limit(1);
 
     clienteExistente = data && data.length ? data[0] : null;
+
+    if(!clienteExistente){
+      const {data: nuevoCliente, error: errorCliente} = await sb
+        .from("clientes")
+        .insert({nombre: clienteNombre, telefono: clienteTelefono})
+        .select()
+        .single();
+
+      if(errorCliente) return alert("Error creando cliente: " + errorCliente.message);
+      clienteExistente = nuevoCliente;
+      clientes.push(nuevoCliente);
+    }
   }
 
   const total=pedidoActual.reduce((a,l)=>a+l.subtotal,0);
@@ -531,11 +544,11 @@ async function guardarPedido(){
     total:total
   };
 
-  if(!sb) pedidos.unshift(pedido);
+  pedidos.unshift(pedido);
   saveLocal();
   alert("Pedido guardado.");
   limpiarPedido();
-  if(sb) await cargarDesdeSupabase();
+  await cargarDesdeSupabase();
   renderAll();
 }
 function limpiarPedido(){
@@ -568,29 +581,43 @@ function renderDashboard(){
   document.getElementById("mComisiones").innerText=money(com);
   document.getElementById("dashPedidos").innerHTML=renderPedidoTable(pedidos.slice(0,8));
 }
+function estadoOptions(actual){
+  const estados=["Pendiente","En preparación","Preparado","Entregado","Cobrado","Cancelado"];
+  return estados.map(e=>`<option value="${e}" ${e==actual?'selected':''}>${e}</option>`).join('');
+}
 function renderPedidoTable(data){
   return table(["Fecha","Cliente","Vendedor","Estado","Total",""],data.map(p=>[
     new Date(p.fecha).toLocaleDateString("es-AR"),
     p.cliente||'',
     p.vendedor||'',
-    `<span class="badge">${p.estado}</span>`,
+    `<select class="status-select" onchange="cambiarEstadoPedido(${p.id},this.value)">${estadoOptions(p.estado)}</select>`,
     money(p.total),
-    `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Preparación</button>`
+    `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Preparación</button> <button class="btn secondary" onclick='exportarPedidoExcel(${p.id})'>Excel</button>`
   ]));
 }
- async function verPreparacion(id){
+async function cambiarEstadoPedido(id,estado){
+  const p=pedidos.find(x=>x.id==id);
+  if(p) p.estado=estado;
+
+  if(sb){
+    const {error}=await sb.from("pedidos").update({estado}).eq("id",id);
+    if(error) return alert("Error actualizando estado: " + error.message);
+  }
+
+  saveLocal();
+  renderAll();
+}
+async function obtenerDetallePedido(id){
+  if(!sb) return [];
+  const {data,error}=await sb.from("detalle_pedidos").select("*").eq("pedido_id", id);
+  if(error){ alert("Error cargando detalle: " + error.message); return []; }
+  return data || [];
+}
+async function verPreparacion(id){
   if(!sb) return alert("Supabase no está conectado.");
 
   const pedido = pedidos.find(p=>p.id==id);
-
-  const {data, error} = await sb
-    .from("detalle_pedidos")
-    .select("*")
-    .eq("pedido_id", id);
-
-  if(error) return alert("Error cargando preparación: " + error.message);
-
-  const lineas = data || [];
+  const lineas = await obtenerDetallePedido(id);
 
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById("preparacion").classList.add("active");
@@ -600,9 +627,11 @@ function renderPedidoTable(data){
     <div class="card">
       <h2>Pedido #${id}</h2>
       <p><b>Cliente:</b> ${pedido ? pedido.cliente : ""}</p>
+      <p><b>Teléfono:</b> ${pedido ? pedido.telefono || "" : ""}</p>
       <p><b>Vendedor:</b> ${pedido ? pedido.vendedor : ""}</p>
       <p><b>Estado:</b> ${pedido ? pedido.estado : ""}</p>
       <p><b>Total:</b> ${pedido ? money(pedido.total) : ""}</p>
+      <button class="btn secondary" onclick="exportarPedidoExcel(${id})">Descargar Excel/CSV</button>
     </div>
     ${table(["SKU","Producto","Código","Cantidad"], lineas.map(l=>[
       l.sku || "",
@@ -611,7 +640,25 @@ function renderPedidoTable(data){
       l.cantidad || ""
     ]))}
   `;
-} 
+}
+async function exportarPedidoExcel(id){
+  const pedido = pedidos.find(p=>p.id==id) || {};
+  const lineas = await obtenerDetallePedido(id);
+  const rows = [
+    ["Pedido", id],
+    ["Fecha", pedido.fecha ? new Date(pedido.fecha).toLocaleString("es-AR") : ""],
+    ["Cliente", pedido.cliente || ""],
+    ["Teléfono", pedido.telefono || ""],
+    ["Vendedor", pedido.vendedor || ""],
+    ["Estado", pedido.estado || ""],
+    ["Total", pedido.total || 0],
+    [],
+    ["SKU","Producto","Código de barras","Cantidad","Precio unitario","Subtotal"],
+    ...lineas.map(l=>[l.sku||"", l.producto||"", l.codigo_barras||"", l.cantidad||"", l.precio_unitario||"", l.subtotal||""])
+  ];
+  const csv = rows.map(r=>r.map(v=>`"${String(v ?? '').replace(/"/g,'""')}"`).join(";")).join("\n");
+  download(`pedido_${id}.csv`, csv);
+}
 function renderPedidos(){
   const q=(document.getElementById("buscarPedidos")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
   const data=pedidos.filter(p=>JSON.stringify(p).toLowerCase().includes(q));
@@ -619,8 +666,13 @@ function renderPedidos(){
 }
 function renderPreparacion(){
   const data=pedidos.filter(p=>p.estado!="Entregado"&&p.estado!="Cancelado");
-  document.getElementById("tablaPreparacion").innerHTML=table(["Pedido","Cliente","Productos","Estado",""],data.map(p=>[
-    p.id,p.cliente||'',p.lineas.map(l=>`${l.sku} x${l.cantidad}`).join("<br>"),`<span class="badge yellow">${p.estado}</span>`,`<button class="btn secondary" onclick='descargarPreparacion(${JSON.stringify(p).replace(/'/g,"&apos;")})'>Descargar</button>`
+  document.getElementById("tablaPreparacion").innerHTML=table(["Pedido","Cliente","Vendedor","Estado","Total",""],data.map(p=>[
+    p.id,
+    p.cliente||'',
+    p.vendedor||'',
+    `<span class="badge yellow">${p.estado}</span>`,
+    money(p.total),
+    `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Ver</button>`
   ]));
 }
 function renderProductos(){
@@ -636,7 +688,77 @@ async function agregarCliente(){
   saveLocal(); renderAll();
 }
 function renderClientes(){
-  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Dirección"],clientes.map(c=>[c.nombre,c.telefono||'',c.direccion||'']));
+  const dl=document.getElementById("clientesList");
+  if(dl){
+    dl.innerHTML=clientes.map(c=>`<option value="${c.nombre}">${c.telefono||''}</option>`).join('');
+  }
+  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Dirección",""],clientes.map(c=>[
+    c.nombre,
+    c.telefono||'',
+    c.direccion||'',
+    `<button class="btn secondary" onclick="verHistorialCliente(${c.id})">Historial</button>`
+  ]));
+}
+function buscarClientePorNombre(texto){
+  const q=String(texto||'').trim().toLowerCase();
+  if(!q) return null;
+  return clientes.find(c=>String(c.nombre||'').toLowerCase()==q) || null;
+}
+function sugerirCliente(){
+  const nombre=document.getElementById("pCliente").value;
+  const c=buscarClientePorNombre(nombre);
+  if(c && c.telefono) document.getElementById("pTelefono").value=c.telefono;
+}
+function seleccionarClienteSiCoincide(){
+  const q=String(document.getElementById("pCliente").value||'').trim().toLowerCase();
+  if(!q) return;
+  let c=buscarClientePorNombre(q);
+  if(!c){
+    const coincidencias=clientes.filter(x=>String(x.nombre||'').toLowerCase().startsWith(q));
+    if(coincidencias.length==1) c=coincidencias[0];
+  }
+  if(c){
+    document.getElementById("pCliente").value=c.nombre;
+    document.getElementById("pTelefono").value=c.telefono||'';
+  }
+}
+async function verHistorialCliente(clienteId){
+  const cliente=clientes.find(c=>c.id==clienteId);
+  if(!cliente) return alert("No encontré el cliente.");
+
+  let data=[];
+  if(sb){
+    const r=await sb.from("pedidos").select("*").eq("cliente_id", clienteId).order("fecha",{ascending:false});
+    if(r.error) return alert("Error cargando historial: " + r.error.message);
+    data=r.data||[];
+  }else{
+    data=pedidos.filter(p=>String(p.cliente||'').toLowerCase()==String(cliente.nombre||'').toLowerCase());
+  }
+
+  const historial=data.map(x=>({
+    id:x.id,
+    fecha:x.fecha,
+    cliente:x.cliente_nombre || x.cliente || cliente.nombre,
+    telefono:x.cliente_telefono || x.telefono || cliente.telefono || '',
+    vendedor:x.vendedor_nombre || x.vendedor || '',
+    vendedor_id:x.vendedor_id,
+    estado:x.estado,
+    observaciones:x.observaciones || '',
+    lineas:[],
+    total:x.total
+  }));
+
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.getElementById("pedidos").classList.add("active");
+  document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+  document.getElementById("tablaPedidos").innerHTML = `
+    <div class="card">
+      <h2>Historial de ${cliente.nombre}</h2>
+      <p><b>Teléfono:</b> ${cliente.telefono||''}</p>
+      <p><b>Dirección:</b> ${cliente.direccion||''}</p>
+    </div>
+    ${renderPedidoTable(historial)}
+  `;
 }
 async function agregarVendedor(){
   const v={nombre:document.getElementById("vNombre").value.trim(),telefono:document.getElementById("vTelefono").value.trim(),porcentaje_comision:Number(document.getElementById("vComision").value||0),activo:true};
@@ -650,14 +772,26 @@ function renderVendedores(){
   document.getElementById("tablaVendedores").innerHTML=table(["Nombre","Teléfono","Comisión","Activo"],vendedores.map(v=>[v.nombre,v.telefono||'',(v.porcentaje_comision||0)+"%",v.activo!==false?"Sí":"No"]));
 }
 function calcComisiones(){
-  return pedidos.map(p=>{
-    const v=vendedores.find(x=>x.nombre==p.vendedor);
+  const resumen={};
+  pedidos.forEach(p=>{
+    const nombre=p.vendedor||'Sin vendedor';
+    const v=vendedores.find(x=>x.nombre==nombre);
     const pct=Number(v?.porcentaje_comision||0);
-    return {vendedor:p.vendedor,cliente:p.cliente,total:p.total,pct,importe:p.total*pct/100,estado:"Pendiente"};
+    if(!resumen[nombre]) resumen[nombre]={vendedor:nombre,cantidad:0,total:0,pct,importe:0};
+    resumen[nombre].cantidad += 1;
+    resumen[nombre].total += Number(p.total||0);
+    resumen[nombre].importe = resumen[nombre].total * pct / 100;
   });
+  return Object.values(resumen);
 }
 function renderComisiones(){
-  document.getElementById("tablaComisiones").innerHTML=table(["Vendedor","Cliente","Venta","%","Comisión","Estado"],calcComisiones().map(c=>[c.vendedor||'',c.cliente||'',money(c.total),c.pct+"%",money(c.importe),c.estado]));
+  document.getElementById("tablaComisiones").innerHTML=table(["Vendedor","Pedidos","Ventas","%","Comisión"],calcComisiones().map(c=>[
+    c.vendedor||'',
+    c.cantidad,
+    money(c.total),
+    c.pct+"%",
+    money(c.importe)
+  ]));
 }
 function exportBackup(){
   download("backup_gestion_envases_devoto.json",JSON.stringify({productos,vendedores,clientes,pedidos},null,2));
