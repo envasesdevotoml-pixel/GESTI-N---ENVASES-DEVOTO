@@ -861,7 +861,8 @@ async function renderPreparacionDeposito(){
   let html = '<div class="prep-only-note"><b>Modo depósito:</b> vista simple para tablet. Tildá cada producto cuando esté listo. El botón se habilita cuando el pedido está completo.</div>';
 
   for(const p of pendientes){
-    const lineas = await obtenerLineasPedido(p.id);
+    const lineasRaw = await obtenerLineasPedido(p.id);
+    const lineas = (lineasRaw || []).filter(Boolean);
     const estado = estadoChecksPedido(p.id, lineas.length);
     const pct = estado.total ? Math.round((estado.completos/estado.total)*100) : 0;
 
@@ -886,6 +887,7 @@ async function renderPreparacionDeposito(){
         </div>
 
         ${lineas.map((l,idx)=>{
+          l = l || {};
           const checked = !!estado.guardado[idx];
           return `
             <div id="prep_row_${p.id}_${idx}" class="prep-check-row ${checked ? "checked" : ""}">
