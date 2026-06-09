@@ -410,14 +410,15 @@ async function sincronizarProductos(){
       medidas:iMed>=0?(r[iMed]||'').trim():'',
       activo:true
     })).filter(p=>p.sku&&p.nombre);
-    productos = nuevos;
+    const unicos = [...new Map(nuevos.map(p => [p.sku, p])).values()];
+    productos = unicos;
     if(sb){
-      const {error} = await sb.from("productos").upsert(nuevos,{onConflict:"sku"});
+      const {error} = await sb.from("productos").upsert(unicos,{onConflict:"sku"});
       if(error) throw error;
     }
     saveLocal();
     renderAll();
-    alert("Productos sincronizados: " + nuevos.length);
+    alert("Productos sincronizados: " + unicos.length);
   }catch(e){alert("No se pudo sincronizar. Revisá Google Sheets o Supabase."); console.error(e)}
 }
 function findProduct(q){
@@ -462,24 +463,26 @@ async function guardarPedido(){
   const vendedor=vendedores[vendedorIdx]||null;
   const clienteNombre=document.getElementById("pCliente").value.trim();
   const clienteTelefono=document.getElementById("pTelefono").value.trim();
-let clienteExistente = null;
+  let clienteExistente = null;
 
-if(sb && clienteNombre){
-  const {data} = await sb
-    .from("clientes")
-    .select("*")
-    .ilike("nombre", clienteNombre)
-    .limit(1);
-
-  clienteExistente = data && data.length ? data[0] : null;
-}
   if(!clienteNombre) return alert("Falta el cliente.");
   if(!vendedor) return alert("Seleccioná un vendedor.");
 
+  if(sb && clienteNombre){
+    const {data} = await sb
+      .from("clientes")
+      .select("*")
+      .ilike("nombre", clienteNombre)
+      .limit(1);
+
+    clienteExistente = data && data.length ? data[0] : null;
+  }
+
   const total=pedidoActual.reduce((a,l)=>a+l.subtotal,0);
+  let pedidoGuardado = null;
 
   if(sb){
-    const {data: pedidoGuardado, error: errorPedido} = await sb
+    const {data, error: errorPedido} = await sb
       .from("pedidos")
       .insert({
         cliente_id: clienteExistente ? clienteExistente.id : null,
@@ -495,17 +498,18 @@ if(sb && clienteNombre){
       .single();
 
     if(errorPedido) return alert("Error guardando pedido: " + errorPedido.message);
+    pedidoGuardado = data;
 
- const detalles = pedidoActual.map(l=>({
-  pedido_id: pedidoGuardado.id,
-  producto_id: null,
-  sku: l.sku,
-  producto: l.nombre,
-  codigo_barras: l.codigo_barras || '',
-  cantidad: l.cantidad,
-  precio_unitario: l.precio,
-  subtotal: l.subtotal
-}));
+    const detalles = pedidoActual.map(l=>({
+      pedido_id: pedidoGuardado.id,
+      producto_id: null,
+      sku: l.sku,
+      producto: l.nombre,
+      codigo_barras: l.codigo_barras || '',
+      cantidad: l.cantidad,
+      precio_unitario: l.precio,
+      subtotal: l.subtotal
+    }));
 
     const {error: errorDetalle} = await sb
       .from("detalle_pedidos")
@@ -515,8 +519,8 @@ if(sb && clienteNombre){
   }
 
   const pedido={
-    id:Date.now(),
-    fecha:new Date().toISOString(),
+    id: pedidoGuardado ? pedidoGuardado.id : Date.now(),
+    fecha: pedidoGuardado ? pedidoGuardado.fecha : new Date().toISOString(),
     cliente:clienteNombre,
     telefono:clienteTelefono,
     vendedor:vendedor?vendedor.nombre:'',
@@ -527,10 +531,11 @@ if(sb && clienteNombre){
     total:total
   };
 
-  pedidos.unshift(pedido);
+  if(!sb) pedidos.unshift(pedido);
   saveLocal();
   alert("Pedido guardado.");
   limpiarPedido();
+  if(sb) await cargarDesdeSupabase();
   renderAll();
 }
 function limpiarPedido(){
