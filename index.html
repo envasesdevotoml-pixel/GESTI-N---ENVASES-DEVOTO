@@ -436,21 +436,64 @@ function renderPedidoActual(){
 }
 async function guardarPedido(){
   if(!pedidoActual.length) return alert("Agregá productos al pedido.");
+
   const vendedorIdx=document.getElementById("pVendedor").value;
   const vendedor=vendedores[vendedorIdx]||null;
   const clienteNombre=document.getElementById("pCliente").value.trim();
+  const clienteTelefono=document.getElementById("pTelefono").value.trim();
+
+  if(!clienteNombre) return alert("Falta el cliente.");
+  if(!vendedor) return alert("Seleccioná un vendedor.");
+
+  const total=pedidoActual.reduce((a,l)=>a+l.subtotal,0);
+
+  if(sb){
+    const {data: pedidoGuardado, error: errorPedido} = await sb
+      .from("pedidos")
+      .insert({
+        cliente_nombre: clienteNombre,
+        cliente_telefono: clienteTelefono,
+        vendedor_nombre: vendedor.nombre,
+        vendedor_id: vendedor.id,
+        estado: document.getElementById("pEstado").value,
+        observaciones: document.getElementById("pObservaciones").value.trim(),
+        total: total
+      })
+      .select()
+      .single();
+
+    if(errorPedido) return alert("Error guardando pedido: " + errorPedido.message);
+
+    const detalles = pedidoActual.map(l=>({
+      pedido_id: pedidoGuardado.id,
+      sku: l.sku,
+      producto: l.nombre,
+      codigo_barras: l.codigo_barras || '',
+      cantidad: l.cantidad,
+      precio: l.precio,
+      subtotal: l.subtotal
+    }));
+
+    const {error: errorDetalle} = await sb
+      .from("detalle_pedidos")
+      .insert(detalles);
+
+    if(errorDetalle) return alert("Error guardando detalle: " + errorDetalle.message);
+  }
+
   const pedido={
     id:Date.now(),
     fecha:new Date().toISOString(),
     cliente:clienteNombre,
-    telefono:document.getElementById("pTelefono").value.trim(),
+    telefono:clienteTelefono,
     vendedor:vendedor?vendedor.nombre:'',
     vendedor_id:vendedor?vendedor.id:null,
     estado:document.getElementById("pEstado").value,
     observaciones:document.getElementById("pObservaciones").value.trim(),
     lineas:[...pedidoActual],
-    total:pedidoActual.reduce((a,l)=>a+l.subtotal,0)
+    total:total
   };
+
   pedidos.unshift(pedido);
   saveLocal();
   alert("Pedido guardado.");
