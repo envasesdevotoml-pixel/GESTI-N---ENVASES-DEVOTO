@@ -447,10 +447,10 @@ if(sb && clienteNombre){
   const {data} = await sb
     .from("clientes")
     .select("*")
-    .or(`nombre.ilike.${clienteNombre},telefono.eq.${clienteTelefono}`)
-    .maybeSingle();
+    .ilike("nombre", clienteNombre)
+    .limit(1);
 
-  clienteExistente = data;
+  clienteExistente = data && data.length ? data[0] : null;
 }
   if(!clienteNombre) return alert("Falta el cliente.");
   if(!vendedor) return alert("Seleccioná un vendedor.");
