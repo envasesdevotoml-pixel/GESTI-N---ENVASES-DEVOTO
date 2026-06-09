@@ -143,6 +143,60 @@
     .btn.big{font-size:16px;padding:14px 20px;border-radius:12px}
     .prep-only-note{background:#eef4ff;border:1px solid #cfe0ff;border-radius:12px;padding:12px;margin-bottom:14px}
 
+
+    .prep-progress{
+      margin:10px 0 12px;
+      font-weight:800;
+      color:#333;
+    }
+    .prep-bar{
+      height:12px;
+      background:#eee;
+      border-radius:999px;
+      overflow:hidden;
+      margin-top:6px;
+    }
+    .prep-bar-fill{
+      height:100%;
+      width:0%;
+      background:var(--green);
+      transition:width .2s ease;
+    }
+    .prep-check-row{
+      display:grid;
+      grid-template-columns:44px 130px 1fr 110px;
+      gap:10px;
+      align-items:center;
+      border-bottom:1px solid var(--line);
+      padding:12px 8px;
+      background:#fff;
+    }
+    .prep-check-row.checked{
+      background:#eaf8f0;
+      opacity:.92;
+    }
+    .prep-check-row input[type="checkbox"]{
+      width:28px;
+      height:28px;
+      cursor:pointer;
+    }
+    .prep-check-head{
+      font-weight:900;
+      background:#fafafa;
+      border-radius:10px 10px 0 0;
+    }
+    .btn.disabled,.btn:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+      background:#999;
+    }
+    @media(max-width:700px){
+      .prep-check-row{
+        grid-template-columns:42px 95px 1fr 80px;
+        font-size:14px;
+      }
+    }
+
     @media(max-width:1000px){
       .layout{flex-direction:column}
       aside{width:100%;overflow:auto}
@@ -757,6 +811,44 @@ function modoDeposito(btn){
   renderPreparacionDeposito();
 }
 
+async function estadoChecksPedido(id, totalItems){
+  const key = `prep_checks_${id}`;
+  const guardado = JSON.parse(localStorage.getItem(key) || "{}");
+  const completos = Object.values(guardado).filter(Boolean).length;
+  return {key, guardado, completos, total:totalItems};
+}
+
+function toggleItemPreparado(pedidoId, idx, checked){
+  const key = `prep_checks_${pedidoId}`;
+  const guardado = JSON.parse(localStorage.getItem(key) || "{}");
+  guardado[idx] = checked;
+  localStorage.setItem(key, JSON.stringify(guardado));
+
+  const row = document.getElementById(`prep_row_${pedidoId}_${idx}`);
+  if(row) row.classList.toggle("checked", checked);
+
+  actualizarProgresoPedido(pedidoId);
+}
+
+function actualizarProgresoPedido(pedidoId){
+  const rows = Array.from(document.querySelectorAll(`[data-pedido-check="${pedidoId}"]`));
+  const total = rows.length;
+  const completos = rows.filter(cb=>cb.checked).length;
+  const pct = total ? Math.round((completos/total)*100) : 0;
+
+  const txt = document.getElementById(`prep_progress_txt_${pedidoId}`);
+  const bar = document.getElementById(`prep_progress_bar_${pedidoId}`);
+  const btn = document.getElementById(`btn_preparado_${pedidoId}`);
+
+  if(txt) txt.innerText = `Preparación: ${completos} de ${total} productos`;
+  if(bar) bar.style.width = pct + "%";
+  if(btn){
+    btn.disabled = completos !== total;
+    btn.classList.toggle("disabled", completos !== total);
+    btn.innerText = completos === total ? "Marcar preparado" : "Faltan productos";
+  }
+}
+
 async function renderPreparacionDeposito(){
   const cont = document.getElementById("tablaPreparacion");
   const pendientes = pedidos.filter(p=>["Pendiente","En preparación"].includes(p.estado));
@@ -766,10 +858,12 @@ async function renderPreparacionDeposito(){
     return;
   }
 
-  let html = '<div class="prep-only-note"><b>Modo depósito:</b> vista simple para tablet. No muestra precios, vendedor, comisiones ni teléfono.</div>';
+  let html = '<div class="prep-only-note"><b>Modo depósito:</b> vista simple para tablet. Tildá cada producto cuando esté listo. El botón se habilita cuando el pedido está completo.</div>';
 
   for(const p of pendientes){
     const lineas = await obtenerLineasPedido(p.id);
+    const estado = estadoChecksPedido(p.id, lineas.length);
+    const pct = estado.total ? Math.round((estado.completos/estado.total)*100) : 0;
 
     html += `
       <div class="prep-card">
@@ -778,26 +872,33 @@ async function renderPreparacionDeposito(){
           <span><b>Cliente:</b> ${p.cliente || ""}</span>
           <span><b>Estado:</b> ${p.estado || ""}</span>
         </div>
-        <table class="prep-items">
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>Producto</th>
-              <th>Cantidad</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${lineas.map(l=>`
-              <tr>
-                <td>${l.sku || ""}</td>
-                <td>${l.producto || l.nombre || ""}</td>
-                <td><b>${l.cantidad || ""}</b></td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
+
+        <div class="prep-progress">
+          <span id="prep_progress_txt_${p.id}">Preparación: ${estado.completos} de ${estado.total} productos</span>
+          <div class="prep-bar"><div id="prep_progress_bar_${p.id}" class="prep-bar-fill" style="width:${pct}%"></div></div>
+        </div>
+
+        <div class="prep-check-row prep-check-head">
+          <div>✓</div>
+          <div>SKU</div>
+          <div>Producto</div>
+          <div>Cantidad</div>
+        </div>
+
+        ${lineas.map((l,idx)=>{
+          const checked = !!estado.guardado[idx];
+          return `
+            <div id="prep_row_${p.id}_${idx}" class="prep-check-row ${checked ? "checked" : ""}">
+              <div><input data-pedido-check="${p.id}" type="checkbox" ${checked ? "checked" : ""} onchange="toggleItemPreparado(${p.id}, ${idx}, this.checked)"></div>
+              <div>${l.sku || ""}</div>
+              <div>${l.producto || l.nombre || ""}</div>
+              <div><b>${l.cantidad || ""}</b></div>
+            </div>
+          `;
+        }).join("")}
+
         <div class="prep-actions">
-          <button class="btn big success" onclick="marcarPreparado(${p.id})">Marcar preparado</button>
+          <button id="btn_preparado_${p.id}" class="btn big success ${estado.completos===estado.total ? "" : "disabled"}" ${estado.completos===estado.total ? "" : "disabled"} onclick="marcarPreparado(${p.id})">${estado.completos===estado.total ? "Marcar preparado" : "Faltan productos"}</button>
           <button class="btn big secondary" onclick="verPreparacion(${p.id})">Ver administrativo</button>
         </div>
       </div>
@@ -806,9 +907,9 @@ async function renderPreparacionDeposito(){
 
   cont.innerHTML = html;
 }
-
 async function marcarPreparado(id){
   await actualizarEstadoPedido(id, "Preparado");
+  localStorage.removeItem(`prep_checks_${id}`);
   await renderPreparacionDeposito();
 }
 
