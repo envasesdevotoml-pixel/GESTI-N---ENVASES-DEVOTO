@@ -813,7 +813,13 @@ function modoDeposito(btn){
 
 async function estadoChecksPedido(id, totalItems){
   const key = `prep_checks_${id}`;
-  const guardado = JSON.parse(localStorage.getItem(key) || "{}");
+  let guardado = {};
+  try{
+    guardado = JSON.parse(localStorage.getItem(key) || "{}") || {};
+  }catch(e){
+    guardado = {};
+  }
+  if(typeof guardado !== "object") guardado = {};
   const completos = Object.values(guardado).filter(Boolean).length;
   return {key, guardado, completos, total:totalItems};
 }
@@ -888,7 +894,7 @@ async function renderPreparacionDeposito(){
 
         ${lineas.map((l,idx)=>{
           l = l || {};
-          const checked = !!estado.guardado[idx];
+          const checked = !!(estado.guardado && estado.guardado[idx]);
           return `
             <div id="prep_row_${p.id}_${idx}" class="prep-check-row ${checked ? "checked" : ""}">
               <div><input data-pedido-check="${p.id}" type="checkbox" ${checked ? "checked" : ""} onchange="toggleItemPreparado(${p.id}, ${idx}, this.checked)"></div>
