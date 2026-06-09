@@ -819,14 +819,20 @@ async function estadoChecksPedido(id, totalItems){
   }catch(e){
     guardado = {};
   }
-  if(typeof guardado !== "object") guardado = {};
+  if(typeof guardado !== "object" || Array.isArray(guardado)) guardado = {};
   const completos = Object.values(guardado).filter(Boolean).length;
-  return {key, guardado, completos, total:totalItems};
+  return {key, guardado, completos, total:Number(totalItems||0)};
 }
 
 function toggleItemPreparado(pedidoId, idx, checked){
   const key = `prep_checks_${pedidoId}`;
-  const guardado = JSON.parse(localStorage.getItem(key) || "{}");
+  let guardado = {};
+  try{
+    guardado = JSON.parse(localStorage.getItem(key) || "{}") || {};
+  }catch(e){
+    guardado = {};
+  }
+  if(typeof guardado !== "object" || Array.isArray(guardado)) guardado = {};
   guardado[idx] = checked;
   localStorage.setItem(key, JSON.stringify(guardado));
 
@@ -837,9 +843,9 @@ function toggleItemPreparado(pedidoId, idx, checked){
 }
 
 function actualizarProgresoPedido(pedidoId){
-  const rows = Array.from(document.querySelectorAll(`[data-pedido-check="${pedidoId}"]`));
-  const total = rows.length;
-  const completos = rows.filter(cb=>cb.checked).length;
+  const checks = Array.from(document.querySelectorAll(`[data-pedido-check="${pedidoId}"]`));
+  const total = checks.length;
+  const completos = checks.filter(cb=>cb.checked).length;
   const pct = total ? Math.round((completos/total)*100) : 0;
 
   const txt = document.getElementById(`prep_progress_txt_${pedidoId}`);
@@ -848,10 +854,12 @@ function actualizarProgresoPedido(pedidoId){
 
   if(txt) txt.innerText = `Preparación: ${completos} de ${total} productos`;
   if(bar) bar.style.width = pct + "%";
+
   if(btn){
-    btn.disabled = completos !== total;
-    btn.classList.toggle("disabled", completos !== total);
-    btn.innerText = completos === total ? "Marcar preparado" : "Faltan productos";
+    const listo = total > 0 && completos === total;
+    btn.disabled = !listo;
+    btn.classList.toggle("disabled", !listo);
+    btn.innerText = listo ? "Marcar preparado" : "Faltan productos";
   }
 }
 
@@ -864,13 +872,16 @@ async function renderPreparacionDeposito(){
     return;
   }
 
-  let html = '<div class="prep-only-note"><b>Modo depósito:</b> vista simple para tablet. Tildá cada producto cuando esté listo. El botón se habilita cuando el pedido está completo.</div>';
+  let html = '<div class="prep-only-note"><b>Modo depósito:</b> vista simple para tablet. Tildá cada producto cuando esté listo. El botón se habilita recién cuando todos los productos estén marcados.</div>';
 
   for(const p of pendientes){
     const lineasRaw = await obtenerLineasPedido(p.id);
     const lineas = (lineasRaw || []).filter(Boolean);
     const estado = estadoChecksPedido(p.id, lineas.length);
-    const pct = estado.total ? Math.round((estado.completos/estado.total)*100) : 0;
+    const completos = Number(estado.completos || 0);
+    const totalItems = Number(estado.total || 0);
+    const pct = totalItems ? Math.round((completos/totalItems)*100) : 0;
+    const listo = totalItems > 0 && completos === totalItems;
 
     html += `
       <div class="prep-card">
@@ -881,7 +892,7 @@ async function renderPreparacionDeposito(){
         </div>
 
         <div class="prep-progress">
-          <span id="prep_progress_txt_${p.id}">Preparación: ${estado.completos} de ${estado.total} productos</span>
+          <span id="prep_progress_txt_${p.id}">Preparación: ${completos} de ${totalItems} productos</span>
           <div class="prep-bar"><div id="prep_progress_bar_${p.id}" class="prep-bar-fill" style="width:${pct}%"></div></div>
         </div>
 
@@ -906,7 +917,7 @@ async function renderPreparacionDeposito(){
         }).join("")}
 
         <div class="prep-actions">
-          <button id="btn_preparado_${p.id}" class="btn big success ${estado.completos===estado.total ? "" : "disabled"}" ${estado.completos===estado.total ? "" : "disabled"} onclick="marcarPreparado(${p.id})">${estado.completos===estado.total ? "Marcar preparado" : "Faltan productos"}</button>
+          <button id="btn_preparado_${p.id}" class="btn big success ${listo ? "" : "disabled"}" ${listo ? "" : "disabled"} onclick="marcarPreparado(${p.id})">${listo ? "Marcar preparado" : "Faltan productos"}</button>
           <button class="btn big secondary" onclick="verPreparacion(${p.id})">Ver administrativo</button>
         </div>
       </div>
@@ -915,7 +926,17 @@ async function renderPreparacionDeposito(){
 
   cont.innerHTML = html;
 }
+
 async function marcarPreparado(id){
+  const checks = Array.from(document.querySelectorAll(`[data-pedido-check="${id}"]`));
+  const total = checks.length;
+  const completos = checks.filter(cb=>cb.checked).length;
+
+  if(!total || completos !== total){
+    alert("Todavía faltan productos por marcar.");
+    return;
+  }
+
   await actualizarEstadoPedido(id, "Preparado");
   localStorage.removeItem(`prep_checks_${id}`);
   await renderPreparacionDeposito();
