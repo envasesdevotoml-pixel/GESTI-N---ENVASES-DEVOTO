@@ -812,13 +812,7 @@ async function marcarPreparado(id){
 }
 
 function renderPreparacion(){
-  const data=pedidos.filter(p=>p.estado!="Entregado"&&p.estado!="Cancelado");
-  document.getElementById("tablaPreparacion").innerHTML=table(["Pedido","Cliente","Estado",""],data.map(p=>[
-    p.id,
-    p.cliente||'',
-    `<span class="badge yellow">${p.estado}</span>`,
-    `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Ver</button>`
-  ]));
+  renderPreparacionDeposito();
 }
 
 function renderProductos(){function renderProductos(){
