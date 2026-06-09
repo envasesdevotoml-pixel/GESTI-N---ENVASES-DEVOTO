@@ -325,6 +325,27 @@ async function cargarDesdeSupabase(){
     if(!v.error && v.data) vendedores = v.data;
     const c = await sb.from("clientes").select("*").order("nombre");
     if(!c.error && c.data) clientes = c.data;
+    
+    const p = await sb
+  .from("pedidos")
+  .select("*")
+  .order("fecha",{ascending:false});
+
+if(!p.error && p.data){
+  pedidos = p.data.map(x=>({
+    id:x.id,
+    fecha:x.fecha,
+    cliente:x.cliente_nombre || "",
+    telefono:x.cliente_telefono || "",
+    vendedor:x.vendedor_nombre || "",
+    vendedor_id:x.vendedor_id,
+    estado:x.estado,
+    observaciones:x.observaciones || "",
+    lineas:[],
+    total:x.total
+  }));
+}
+    
     saveLocal();
     renderAll();
   }catch(e){console.log(e)}
