@@ -570,9 +570,43 @@ function renderPedidoTable(data){
     p.vendedor||'',
     `<span class="badge">${p.estado}</span>`,
     money(p.total),
-    `<button class="btn secondary" onclick='descargarPreparacion(${JSON.stringify(p).replace(/'/g,"&apos;")})'>Preparación</button>`
+    `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Preparación</button>`
   ]));
 }
+ async function verPreparacion(id){
+  if(!sb) return alert("Supabase no está conectado.");
+
+  const pedido = pedidos.find(p=>p.id==id);
+
+  const {data, error} = await sb
+    .from("detalle_pedidos")
+    .select("*")
+    .eq("pedido_id", id);
+
+  if(error) return alert("Error cargando preparación: " + error.message);
+
+  const lineas = data || [];
+
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.getElementById("preparacion").classList.add("active");
+  document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+
+  document.getElementById("tablaPreparacion").innerHTML = `
+    <div class="card">
+      <h2>Pedido #${id}</h2>
+      <p><b>Cliente:</b> ${pedido ? pedido.cliente : ""}</p>
+      <p><b>Vendedor:</b> ${pedido ? pedido.vendedor : ""}</p>
+      <p><b>Estado:</b> ${pedido ? pedido.estado : ""}</p>
+      <p><b>Total:</b> ${pedido ? money(pedido.total) : ""}</p>
+    </div>
+    ${table(["SKU","Producto","Código","Cantidad"], lineas.map(l=>[
+      l.sku || "",
+      l.producto || "",
+      l.codigo_barras || "",
+      l.cantidad || ""
+    ]))}
+  `;
+} 
 function renderPedidos(){
   const q=(document.getElementById("buscarPedidos")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
   const data=pedidos.filter(p=>JSON.stringify(p).toLowerCase().includes(q));
