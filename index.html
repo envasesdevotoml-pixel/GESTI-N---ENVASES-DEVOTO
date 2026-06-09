@@ -126,6 +126,23 @@
     .warning{background:#fff3cd;border:1px solid #ffe69c;border-radius:10px;padding:12px;margin-bottom:14px}
     .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
     .status-select{min-width:150px}
+
+    .prep-card{
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:18px;
+      box-shadow:var(--shadow);
+      padding:18px;
+      margin-bottom:16px;
+    }
+    .prep-card h2{margin-bottom:8px}
+    .prep-meta{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;color:#555}
+    .prep-items{width:100%;border-collapse:collapse;margin-top:10px}
+    .prep-items th,.prep-items td{box-shadow:none;border-bottom:1px solid var(--line);padding:10px;font-size:15px}
+    .prep-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+    .btn.big{font-size:16px;padding:14px 20px;border-radius:12px}
+    .prep-only-note{background:#eef4ff;border:1px solid #cfe0ff;border-radius:12px;padding:12px;margin-bottom:14px}
+
     @media(max-width:1000px){
       .layout{flex-direction:column}
       aside{width:100%;overflow:auto}
@@ -140,7 +157,7 @@
 <header>
   <div class="brand">ENVASES DEVOTO</div>
   <div class="top-search"><input id="globalSearch" placeholder="Buscar pedido, cliente, producto o vendedor..." oninput="renderAll()"></div>
-  <div class="chip">Administración</div>
+  <div class="chip" id="modeChip">Administración</div>
 </header>
 
 <div class="layout">
@@ -150,6 +167,7 @@
       <button onclick="go('nuevoPedido',this)">🛒 Cargar pedido</button>
       <button onclick="go('pedidos',this)">📋 Pedidos</button>
       <button onclick="go('preparacion',this)">📦 Preparación</button>
+      <button onclick="modoDeposito(this)">🧾 Tablet depósito</button>
       <button onclick="go('productos',this)">🏷️ Productos</button>
       <button onclick="go('clientes',this)">👥 Clientes</button>
       <button onclick="go('vendedores',this)">👨‍💼 Vendedores</button>
@@ -178,8 +196,8 @@
       <div class="card">
         <div class="warning">Pensado para pedidos que llegan por WhatsApp: elegís vendedor, cargás cliente y vas agregando productos rápido por SKU, código de barras o nombre.</div>
         <div class="pedido-head">
-          <input id="pCliente" list="clientesList" placeholder="Cliente / Razón social" oninput="sugerirCliente()" onblur="seleccionarClienteSiCoincide()">
-          <datalist id="clientesList"></datalist>
+          <input id="pCliente" list="clientesSugeridos" placeholder="Cliente / Razón social" oninput="autocompletarCliente()">
+          <datalist id="clientesSugeridos"></datalist>
           <input id="pTelefono" placeholder="WhatsApp / Teléfono">
           <select id="pVendedor"></select>
           <select id="pEstado">
@@ -316,6 +334,11 @@ function init(){
   const url = document.getElementById("cfgUrl").value.trim();
   const key = document.getElementById("cfgKey").value.trim();
   if(url && key && window.supabase) sb = window.supabase.createClient(url,key);
+
+  if(location.hash === "#preparacion" || location.hash === "#deposito"){
+    setTimeout(()=>modoDeposito(), 400);
+  }
+
   cargarDesdeSupabase();
   renderAll();
 }
@@ -324,29 +347,31 @@ async function cargarDesdeSupabase(){
   try{
     const v = await sb.from("vendedores").select("*").order("nombre");
     if(!v.error && v.data) vendedores = v.data;
+
     const c = await sb.from("clientes").select("*").order("nombre");
     if(!c.error && c.data) clientes = c.data;
-    
-    const p = await sb
-  .from("pedidos")
-  .select("*")
-  .order("fecha",{ascending:false});
 
-if(!p.error && p.data){
-  pedidos = p.data.map(x=>({
-    id:x.id,
-    fecha:x.fecha,
-    cliente:x.cliente_nombre || "",
-    telefono:x.cliente_telefono || "",
-    vendedor:x.vendedor_nombre || "",
-    vendedor_id:x.vendedor_id,
-    estado:x.estado,
-    observaciones:x.observaciones || "",
-    lineas:[],
-    total:x.total
-  }));
-}
-    
+    const p = await sb
+      .from("pedidos")
+      .select("*")
+      .order("fecha",{ascending:false});
+
+    if(!p.error && p.data){
+      pedidos = p.data.map(x=>({
+        id:x.id,
+        fecha:x.fecha,
+        cliente_id:x.cliente_id,
+        cliente:x.cliente_nombre || "",
+        telefono:x.cliente_telefono || "",
+        vendedor:x.vendedor_nombre || "",
+        vendedor_id:x.vendedor_id,
+        estado:x.estado,
+        observaciones:x.observaciones || "",
+        lineas:[],
+        total:x.total
+      }));
+    }
+
     saveLocal();
     renderAll();
   }catch(e){console.log(e)}
@@ -361,7 +386,9 @@ function go(id,btn){
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
   document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
-  btn.classList.add("active");
+  if(btn) btn.classList.add("active");
+  const chip = document.getElementById("modeChip");
+  if(chip) chip.innerText = "Administración";
   renderAll();
 }
 function table(headers,rows){
@@ -411,8 +438,10 @@ async function sincronizarProductos(){
       medidas:iMed>=0?(r[iMed]||'').trim():'',
       activo:true
     })).filter(p=>p.sku&&p.nombre);
+
     const unicos = [...new Map(nuevos.map(p => [p.sku, p])).values()];
     productos = unicos;
+
     if(sb){
       const {error} = await sb.from("productos").upsert(unicos,{onConflict:"sku"});
       if(error) throw error;
@@ -464,10 +493,11 @@ async function guardarPedido(){
   const vendedor=vendedores[vendedorIdx]||null;
   const clienteNombre=document.getElementById("pCliente").value.trim();
   const clienteTelefono=document.getElementById("pTelefono").value.trim();
-  let clienteExistente = null;
 
   if(!clienteNombre) return alert("Falta el cliente.");
   if(!vendedor) return alert("Seleccioná un vendedor.");
+
+  let clienteExistente = null;
 
   if(sb && clienteNombre){
     const {data} = await sb
@@ -479,15 +509,20 @@ async function guardarPedido(){
     clienteExistente = data && data.length ? data[0] : null;
 
     if(!clienteExistente){
-      const {data: nuevoCliente, error: errorCliente} = await sb
+      const nuevoCliente = {
+        nombre: clienteNombre,
+        telefono: clienteTelefono,
+        direccion: ""
+      };
+
+      const {data: creado, error: errorCliente} = await sb
         .from("clientes")
-        .insert({nombre: clienteNombre, telefono: clienteTelefono})
+        .insert(nuevoCliente)
         .select()
         .single();
 
       if(errorCliente) return alert("Error creando cliente: " + errorCliente.message);
-      clienteExistente = nuevoCliente;
-      clientes.push(nuevoCliente);
+      clienteExistente = creado;
     }
   }
 
@@ -534,6 +569,7 @@ async function guardarPedido(){
   const pedido={
     id: pedidoGuardado ? pedidoGuardado.id : Date.now(),
     fecha: pedidoGuardado ? pedidoGuardado.fecha : new Date().toISOString(),
+    cliente_id: clienteExistente ? clienteExistente.id : null,
     cliente:clienteNombre,
     telefono:clienteTelefono,
     vendedor:vendedor?vendedor.nombre:'',
@@ -544,11 +580,12 @@ async function guardarPedido(){
     total:total
   };
 
-  pedidos.unshift(pedido);
+  if(!sb) pedidos.unshift(pedido);
   saveLocal();
   alert("Pedido guardado.");
   limpiarPedido();
-  await cargarDesdeSupabase();
+
+  if(sb) await cargarDesdeSupabase();
   renderAll();
 }
 function limpiarPedido(){
@@ -581,43 +618,57 @@ function renderDashboard(){
   document.getElementById("mComisiones").innerText=money(com);
   document.getElementById("dashPedidos").innerHTML=renderPedidoTable(pedidos.slice(0,8));
 }
-function estadoOptions(actual){
-  const estados=["Pendiente","En preparación","Preparado","Entregado","Cobrado","Cancelado"];
-  return estados.map(e=>`<option value="${e}" ${e==actual?'selected':''}>${e}</option>`).join('');
-}
 function renderPedidoTable(data){
   return table(["Fecha","Cliente","Vendedor","Estado","Total",""],data.map(p=>[
     new Date(p.fecha).toLocaleDateString("es-AR"),
     p.cliente||'',
     p.vendedor||'',
-    `<select class="status-select" onchange="cambiarEstadoPedido(${p.id},this.value)">${estadoOptions(p.estado)}</select>`,
+    `<select class="status-select" onchange="actualizarEstadoPedido(${p.id}, this.value)">
+      ${["Pendiente","En preparación","Preparado","Entregado","Cobrado","Cancelado"].map(e=>`<option ${p.estado==e?"selected":""}>${e}</option>`).join("")}
+    </select>`,
     money(p.total),
     `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Preparación</button> <button class="btn secondary" onclick='exportarPedidoExcel(${p.id})'>Excel</button>`
   ]));
 }
-async function cambiarEstadoPedido(id,estado){
-  const p=pedidos.find(x=>x.id==id);
-  if(p) p.estado=estado;
+
+async function actualizarEstadoPedido(id, estado){
+  const pedido = pedidos.find(p=>p.id==id);
+  if(pedido) pedido.estado = estado;
 
   if(sb){
-    const {error}=await sb.from("pedidos").update({estado}).eq("id",id);
+    const {error} = await sb.from("pedidos").update({estado}).eq("id", id);
     if(error) return alert("Error actualizando estado: " + error.message);
+    await cargarDesdeSupabase();
+  } else {
+    saveLocal();
+    renderAll();
+  }
+}
+
+async function obtenerLineasPedido(id){
+  if(!sb){
+    const pedido = pedidos.find(p=>p.id==id);
+    return pedido ? (pedido.lineas || []) : [];
   }
 
-  saveLocal();
-  renderAll();
-}
-async function obtenerDetallePedido(id){
-  if(!sb) return [];
-  const {data,error}=await sb.from("detalle_pedidos").select("*").eq("pedido_id", id);
-  if(error){ alert("Error cargando detalle: " + error.message); return []; }
+  const {data, error} = await sb
+    .from("detalle_pedidos")
+    .select("*")
+    .eq("pedido_id", id);
+
+  if(error){
+    alert("Error cargando productos del pedido: " + error.message);
+    return [];
+  }
+
   return data || [];
 }
+
 async function verPreparacion(id){
   if(!sb) return alert("Supabase no está conectado.");
 
   const pedido = pedidos.find(p=>p.id==id);
-  const lineas = await obtenerDetallePedido(id);
+  const lineas = await obtenerLineasPedido(id);
 
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById("preparacion").classList.add("active");
@@ -627,55 +678,150 @@ async function verPreparacion(id){
     <div class="card">
       <h2>Pedido #${id}</h2>
       <p><b>Cliente:</b> ${pedido ? pedido.cliente : ""}</p>
-      <p><b>Teléfono:</b> ${pedido ? pedido.telefono || "" : ""}</p>
+      <p><b>Teléfono:</b> ${pedido ? pedido.telefono : ""}</p>
       <p><b>Vendedor:</b> ${pedido ? pedido.vendedor : ""}</p>
       <p><b>Estado:</b> ${pedido ? pedido.estado : ""}</p>
       <p><b>Total:</b> ${pedido ? money(pedido.total) : ""}</p>
-      <button class="btn secondary" onclick="exportarPedidoExcel(${id})">Descargar Excel/CSV</button>
+      <button class="btn secondary" onclick="descargarPreparacionLimpia(${id})">Descargar hoja para depósito</button>
+      <button class="btn secondary" onclick="exportarPedidoExcel(${id})">Excel administrativo</button>
     </div>
     ${table(["SKU","Producto","Código","Cantidad"], lineas.map(l=>[
       l.sku || "",
-      l.producto || "",
+      l.producto || l.nombre || "",
       l.codigo_barras || "",
       l.cantidad || ""
     ]))}
   `;
 }
-async function exportarPedidoExcel(id){
-  const pedido = pedidos.find(p=>p.id==id) || {};
-  const lineas = await obtenerDetallePedido(id);
+
+async function descargarPreparacionLimpia(id){
+  const pedido = pedidos.find(p=>p.id==id);
+  const lineas = await obtenerLineasPedido(id);
+
   const rows = [
     ["Pedido", id],
-    ["Fecha", pedido.fecha ? new Date(pedido.fecha).toLocaleString("es-AR") : ""],
-    ["Cliente", pedido.cliente || ""],
-    ["Teléfono", pedido.telefono || ""],
-    ["Vendedor", pedido.vendedor || ""],
-    ["Estado", pedido.estado || ""],
-    ["Total", pedido.total || 0],
+    ["Cliente", pedido ? pedido.cliente : ""],
     [],
-    ["SKU","Producto","Código de barras","Cantidad","Precio unitario","Subtotal"],
-    ...lineas.map(l=>[l.sku||"", l.producto||"", l.codigo_barras||"", l.cantidad||"", l.precio_unitario||"", l.subtotal||""])
+    ["SKU","Producto","Cantidad"],
+    ...lineas.map(l=>[
+      l.sku || "",
+      l.producto || l.nombre || "",
+      l.cantidad || ""
+    ])
   ];
-  const csv = rows.map(r=>r.map(v=>`"${String(v ?? '').replace(/"/g,'""')}"`).join(";")).join("\n");
-  download(`pedido_${id}.csv`, csv);
+
+  download(`preparacion_pedido_${id}.csv`, rows.map(r=>r.join(";")).join("\n"));
 }
+
+async function exportarPedidoExcel(id){
+  const pedido = pedidos.find(p=>p.id==id);
+  const lineas = await obtenerLineasPedido(id);
+
+  const rows = [
+    ["Pedido", id],
+    ["Cliente", pedido ? pedido.cliente : ""],
+    ["Teléfono", pedido ? pedido.telefono : ""],
+    ["Vendedor", pedido ? pedido.vendedor : ""],
+    ["Estado", pedido ? pedido.estado : ""],
+    ["Total", pedido ? pedido.total : ""],
+    [],
+    ["SKU","Producto","Código","Cantidad","Precio unitario","Subtotal"],
+    ...lineas.map(l=>[
+      l.sku || "",
+      l.producto || l.nombre || "",
+      l.codigo_barras || "",
+      l.cantidad || "",
+      l.precio_unitario || l.precio || "",
+      l.subtotal || ""
+    ])
+  ];
+
+  download(`pedido_${id}.csv`, rows.map(r=>r.join(";")).join("\n"));
+}
+
 function renderPedidos(){
   const q=(document.getElementById("buscarPedidos")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
   const data=pedidos.filter(p=>JSON.stringify(p).toLowerCase().includes(q));
   document.getElementById("tablaPedidos").innerHTML=renderPedidoTable(data);
 }
+
+
+function modoDeposito(btn){
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.getElementById("preparacion").classList.add("active");
+  document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+  if(btn) btn.classList.add("active");
+  const chip = document.getElementById("modeChip");
+  if(chip) chip.innerText = "Tablet depósito";
+  renderPreparacionDeposito();
+}
+
+async function renderPreparacionDeposito(){
+  const cont = document.getElementById("tablaPreparacion");
+  const pendientes = pedidos.filter(p=>["Pendiente","En preparación"].includes(p.estado));
+
+  if(!pendientes.length){
+    cont.innerHTML = '<div class="card empty">No hay pedidos pendientes para preparar.</div>';
+    return;
+  }
+
+  let html = '<div class="prep-only-note"><b>Modo depósito:</b> vista simple para tablet. No muestra precios, comisiones ni teléfono.</div>';
+
+  for(const p of pendientes){
+    const lineas = await obtenerLineasPedido(p.id);
+
+    html += `
+      <div class="prep-card">
+        <h2>Pedido #${p.id}</h2>
+        <div class="prep-meta">
+          <span><b>Cliente:</b> ${p.cliente || ""}</span>
+          <span><b>Estado:</b> ${p.estado || ""}</span>
+        </div>
+        <table class="prep-items">
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Producto</th>
+              <th>Cantidad</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lineas.map(l=>`
+              <tr>
+                <td>${l.sku || ""}</td>
+                <td>${l.producto || l.nombre || ""}</td>
+                <td><b>${l.cantidad || ""}</b></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        <div class="prep-actions">
+          <button class="btn big success" onclick="marcarPreparado(${p.id})">Marcar preparado</button>
+          <button class="btn big secondary" onclick="verPreparacion(${p.id})">Ver administrativo</button>
+        </div>
+      </div>
+    `;
+  }
+
+  cont.innerHTML = html;
+}
+
+async function marcarPreparado(id){
+  await actualizarEstadoPedido(id, "Preparado");
+  await renderPreparacionDeposito();
+}
+
 function renderPreparacion(){
   const data=pedidos.filter(p=>p.estado!="Entregado"&&p.estado!="Cancelado");
-  document.getElementById("tablaPreparacion").innerHTML=table(["Pedido","Cliente","Vendedor","Estado","Total",""],data.map(p=>[
+  document.getElementById("tablaPreparacion").innerHTML=table(["Pedido","Cliente","Estado",""],data.map(p=>[
     p.id,
     p.cliente||'',
-    p.vendedor||'',
     `<span class="badge yellow">${p.estado}</span>`,
-    money(p.total),
     `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Ver</button>`
   ]));
 }
-function renderProductos(){
+
+function renderProductos(){function renderProductos(){
   const q=(document.getElementById("buscarProducto")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
   const data=productos.filter(p=>[p.sku,p.nombre,p.codigo_barras,p.categoria].join(" ").toLowerCase().includes(q)).slice(0,250);
   document.getElementById("tablaProductos").innerHTML=table(["SKU","Producto","Código","Precio","Categoría","Medidas"],data.map(p=>[p.sku,p.nombre,p.codigo_barras||'',money(p.precio),p.categoria||'',p.medidas||'']));
@@ -688,10 +834,6 @@ async function agregarCliente(){
   saveLocal(); renderAll();
 }
 function renderClientes(){
-  const dl=document.getElementById("clientesList");
-  if(dl){
-    dl.innerHTML=clientes.map(c=>`<option value="${c.nombre}">${c.telefono||''}</option>`).join('');
-  }
   document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Dirección",""],clientes.map(c=>[
     c.nombre,
     c.telefono||'',
@@ -699,68 +841,60 @@ function renderClientes(){
     `<button class="btn secondary" onclick="verHistorialCliente(${c.id})">Historial</button>`
   ]));
 }
-function buscarClientePorNombre(texto){
-  const q=String(texto||'').trim().toLowerCase();
-  if(!q) return null;
-  return clientes.find(c=>String(c.nombre||'').toLowerCase()==q) || null;
-}
-function sugerirCliente(){
-  const nombre=document.getElementById("pCliente").value;
-  const c=buscarClientePorNombre(nombre);
-  if(c && c.telefono) document.getElementById("pTelefono").value=c.telefono;
-}
-function seleccionarClienteSiCoincide(){
-  const q=String(document.getElementById("pCliente").value||'').trim().toLowerCase();
-  if(!q) return;
-  let c=buscarClientePorNombre(q);
-  if(!c){
-    const coincidencias=clientes.filter(x=>String(x.nombre||'').toLowerCase().startsWith(q));
-    if(coincidencias.length==1) c=coincidencias[0];
+
+function autocompletarCliente(){
+  const lista = document.getElementById("clientesSugeridos");
+  if(lista){
+    lista.innerHTML = clientes.map(c=>`<option value="${c.nombre}">${c.telefono||''}</option>`).join('');
   }
-  if(c){
-    document.getElementById("pCliente").value=c.nombre;
-    document.getElementById("pTelefono").value=c.telefono||'';
+
+  const nombre = document.getElementById("pCliente").value.trim().toLowerCase();
+  const encontrado = clientes.find(c=>String(c.nombre||'').toLowerCase()===nombre);
+  if(encontrado){
+    document.getElementById("pTelefono").value = encontrado.telefono || "";
   }
 }
+
 async function verHistorialCliente(clienteId){
-  const cliente=clientes.find(c=>c.id==clienteId);
+  const cliente = clientes.find(c=>c.id==clienteId);
   if(!cliente) return alert("No encontré el cliente.");
 
-  let data=[];
+  let data = pedidos.filter(p=>p.cliente_id==clienteId || String(p.cliente||'').toLowerCase()==String(cliente.nombre||'').toLowerCase());
+
   if(sb){
-    const r=await sb.from("pedidos").select("*").eq("cliente_id", clienteId).order("fecha",{ascending:false});
-    if(r.error) return alert("Error cargando historial: " + r.error.message);
-    data=r.data||[];
-  }else{
-    data=pedidos.filter(p=>String(p.cliente||'').toLowerCase()==String(cliente.nombre||'').toLowerCase());
+    const res = await sb.from("pedidos").select("*").eq("cliente_id", clienteId).order("fecha",{ascending:false});
+    if(!res.error && res.data){
+      data = res.data.map(x=>({
+        id:x.id,
+        fecha:x.fecha,
+        cliente_id:x.cliente_id,
+        cliente:x.cliente_nombre || "",
+        telefono:x.cliente_telefono || "",
+        vendedor:x.vendedor_nombre || "",
+        vendedor_id:x.vendedor_id,
+        estado:x.estado,
+        total:x.total
+      }));
+    }
   }
 
-  const historial=data.map(x=>({
-    id:x.id,
-    fecha:x.fecha,
-    cliente:x.cliente_nombre || x.cliente || cliente.nombre,
-    telefono:x.cliente_telefono || x.telefono || cliente.telefono || '',
-    vendedor:x.vendedor_nombre || x.vendedor || '',
-    vendedor_id:x.vendedor_id,
-    estado:x.estado,
-    observaciones:x.observaciones || '',
-    lineas:[],
-    total:x.total
-  }));
+  const total = data.reduce((a,p)=>a+Number(p.total||0),0);
 
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById("pedidos").classList.add("active");
-  document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+
   document.getElementById("tablaPedidos").innerHTML = `
     <div class="card">
       <h2>Historial de ${cliente.nombre}</h2>
-      <p><b>Teléfono:</b> ${cliente.telefono||''}</p>
-      <p><b>Dirección:</b> ${cliente.direccion||''}</p>
+      <p><b>Teléfono:</b> ${cliente.telefono||""}</p>
+      <p><b>Cantidad de pedidos:</b> ${data.length}</p>
+      <p><b>Total comprado:</b> ${money(total)}</p>
     </div>
-    ${renderPedidoTable(historial)}
+    ${renderPedidoTable(data)}
   `;
 }
-async function agregarVendedor(){
+
+async function agregarVendedor(){async function agregarVendedor(){
   const v={nombre:document.getElementById("vNombre").value.trim(),telefono:document.getElementById("vTelefono").value.trim(),porcentaje_comision:Number(document.getElementById("vComision").value||0),activo:true};
   if(!v.nombre) return alert("Falta nombre.");
   if(sb){const {error}=await sb.from("vendedores").insert(v); if(error) return alert(error.message); await cargarDesdeSupabase()}
@@ -772,28 +906,28 @@ function renderVendedores(){
   document.getElementById("tablaVendedores").innerHTML=table(["Nombre","Teléfono","Comisión","Activo"],vendedores.map(v=>[v.nombre,v.telefono||'',(v.porcentaje_comision||0)+"%",v.activo!==false?"Sí":"No"]));
 }
 function calcComisiones(){
-  const resumen={};
+  const resumen = {};
   pedidos.forEach(p=>{
-    const nombre=p.vendedor||'Sin vendedor';
-    const v=vendedores.find(x=>x.nombre==nombre);
+    const v=vendedores.find(x=>x.nombre==p.vendedor || x.id==p.vendedor_id);
+    const nombre = p.vendedor || (v ? v.nombre : "Sin vendedor");
     const pct=Number(v?.porcentaje_comision||0);
-    if(!resumen[nombre]) resumen[nombre]={vendedor:nombre,cantidad:0,total:0,pct,importe:0};
-    resumen[nombre].cantidad += 1;
+    if(!resumen[nombre]) resumen[nombre]={vendedor:nombre,pedidos:0,total:0,pct,importe:0};
+    resumen[nombre].pedidos += 1;
     resumen[nombre].total += Number(p.total||0);
+    resumen[nombre].pct = pct;
     resumen[nombre].importe = resumen[nombre].total * pct / 100;
   });
   return Object.values(resumen);
 }
+
 function renderComisiones(){
-  document.getElementById("tablaComisiones").innerHTML=table(["Vendedor","Pedidos","Ventas","%","Comisión"],calcComisiones().map(c=>[
-    c.vendedor||'',
-    c.cantidad,
-    money(c.total),
-    c.pct+"%",
-    money(c.importe)
-  ]));
+  document.getElementById("tablaComisiones").innerHTML=table(
+    ["Vendedor","Pedidos","Ventas","% Comisión","Comisión estimada"],
+    calcComisiones().map(c=>[c.vendedor,c.pedidos,money(c.total),c.pct+"%",money(c.importe)])
+  );
 }
-function exportBackup(){
+
+function exportBackup(){function exportBackup(){
   download("backup_gestion_envases_devoto.json",JSON.stringify({productos,vendedores,clientes,pedidos},null,2));
 }
 function renderAll(){
