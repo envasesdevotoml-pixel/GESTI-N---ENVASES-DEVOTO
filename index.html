@@ -335,12 +335,12 @@ function init(){
   const key = document.getElementById("cfgKey").value.trim();
   if(url && key && window.supabase) sb = window.supabase.createClient(url,key);
 
-  if(location.hash === "#preparacion" || location.hash === "#deposito"){
-    setTimeout(()=>modoDeposito(), 400);
-  }
-
   cargarDesdeSupabase();
   renderAll();
+
+  if(location.hash === "#preparacion" || location.hash === "#deposito"){
+    setTimeout(()=>modoDeposito(), 700);
+  }
 }
 async function cargarDesdeSupabase(){
   if(!sb) return;
@@ -673,6 +673,8 @@ async function verPreparacion(id){
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById("preparacion").classList.add("active");
   document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+  const chip = document.getElementById("modeChip");
+  if(chip) chip.innerText = "Administración";
 
   document.getElementById("tablaPreparacion").innerHTML = `
     <div class="card">
@@ -745,7 +747,6 @@ function renderPedidos(){
   document.getElementById("tablaPedidos").innerHTML=renderPedidoTable(data);
 }
 
-
 function modoDeposito(btn){
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById("preparacion").classList.add("active");
@@ -765,7 +766,7 @@ async function renderPreparacionDeposito(){
     return;
   }
 
-  let html = '<div class="prep-only-note"><b>Modo depósito:</b> vista simple para tablet. No muestra precios, comisiones ni teléfono.</div>';
+  let html = '<div class="prep-only-note"><b>Modo depósito:</b> vista simple para tablet. No muestra precios, vendedor, comisiones ni teléfono.</div>';
 
   for(const p of pendientes){
     const lineas = await obtenerLineasPedido(p.id);
@@ -815,7 +816,7 @@ function renderPreparacion(){
   renderPreparacionDeposito();
 }
 
-function renderProductos(){function renderProductos(){
+function renderProductos(){
   const q=(document.getElementById("buscarProducto")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
   const data=productos.filter(p=>[p.sku,p.nombre,p.codigo_barras,p.categoria].join(" ").toLowerCase().includes(q)).slice(0,250);
   document.getElementById("tablaProductos").innerHTML=table(["SKU","Producto","Código","Precio","Categoría","Medidas"],data.map(p=>[p.sku,p.nombre,p.codigo_barras||'',money(p.precio),p.categoria||'',p.medidas||'']));
@@ -888,7 +889,7 @@ async function verHistorialCliente(clienteId){
   `;
 }
 
-async function agregarVendedor(){async function agregarVendedor(){
+async function agregarVendedor(){
   const v={nombre:document.getElementById("vNombre").value.trim(),telefono:document.getElementById("vTelefono").value.trim(),porcentaje_comision:Number(document.getElementById("vComision").value||0),activo:true};
   if(!v.nombre) return alert("Falta nombre.");
   if(sb){const {error}=await sb.from("vendedores").insert(v); if(error) return alert(error.message); await cargarDesdeSupabase()}
@@ -921,7 +922,7 @@ function renderComisiones(){
   );
 }
 
-function exportBackup(){function exportBackup(){
+function exportBackup(){
   download("backup_gestion_envases_devoto.json",JSON.stringify({productos,vendedores,clientes,pedidos},null,2));
 }
 function renderAll(){
