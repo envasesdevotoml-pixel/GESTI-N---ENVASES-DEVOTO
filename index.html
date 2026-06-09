@@ -464,15 +464,16 @@ async function guardarPedido(){
 
     if(errorPedido) return alert("Error guardando pedido: " + errorPedido.message);
 
-    const detalles = pedidoActual.map(l=>({
-      pedido_id: pedidoGuardado.id,
-      sku: l.sku,
-      producto: l.nombre,
-      codigo_barras: l.codigo_barras || '',
-      cantidad: l.cantidad,
-      precio: l.precio,
-      subtotal: l.subtotal
-    }));
+ const detalles = pedidoActual.map(l=>({
+  pedido_id: pedidoGuardado.id,
+  producto_id: null,
+  sku: l.sku,
+  producto: l.nombre,
+  codigo_barras: l.codigo_barras || '',
+  cantidad: l.cantidad,
+  precio_unitario: l.precio,
+  subtotal: l.subtotal
+}));
 
     const {error: errorDetalle} = await sb
       .from("detalle_pedidos")
