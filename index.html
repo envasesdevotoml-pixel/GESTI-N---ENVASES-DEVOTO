@@ -197,6 +197,16 @@
       }
     }
 
+
+    .status-select{font-weight:800;border-radius:10px}
+    .estado-pendiente{background:#fff7cc;color:#8a6d00;border-color:#f0df8a}
+    .estado-en-preparacion{background:#eef4ff;color:#2968c8;border-color:#cfe0ff}
+    .estado-preparado{background:#e6f7ee;color:#00a650;border-color:#b7e5cc}
+    .estado-entregado{background:#e8f5e9;color:#1b5e20;border-color:#b7dfb9}
+    .estado-cobrado{background:#f3e8ff;color:#6b21a8;border-color:#d8b4fe}
+    .estado-cancelado{background:#ffe8e8;color:#d1242f;border-color:#ffb3b3}
+    .edit-alert{background:#eef4ff;border:1px solid #cfe0ff;border-radius:12px;padding:12px;margin-bottom:14px;font-weight:800}
+
     @media(max-width:1000px){
       .layout{flex-direction:column}
       aside{width:100%;overflow:auto}
@@ -221,7 +231,6 @@
       <button onclick="go('nuevoPedido',this)">🛒 Cargar pedido</button>
       <button onclick="go('pedidos',this)">📋 Pedidos</button>
       <button onclick="go('preparacion',this)">📦 Preparación</button>
-      <button onclick="modoDeposito(this)">🧾 Tablet depósito</button>
       <button onclick="go('productos',this)">🏷️ Productos</button>
       <button onclick="go('clientes',this)">👥 Clientes</button>
       <button onclick="go('vendedores',this)">👨‍💼 Vendedores</button>
@@ -285,7 +294,7 @@
         </table>
         <div class="total-row"><span>Total</span><span id="pedidoTotal">$0</span></div>
         <div class="toolbar" style="margin-top:16px">
-          <button class="btn success" onclick="guardarPedido()">Guardar pedido</button>
+          <button id="btnGuardarPedido" class="btn success" onclick="guardarPedido()">Guardar pedido</button>
           <button class="btn secondary" onclick="descargarPreparacionActual()">Descargar preparación sin precios</button>
           <button class="btn secondary" onclick="limpiarPedido()">Limpiar</button>
         </div>
@@ -373,6 +382,7 @@ let vendedores = JSON.parse(localStorage.getItem("ed_vendedores") || "[]");
 let clientes = JSON.parse(localStorage.getItem("ed_clientes") || "[]");
 let pedidos = JSON.parse(localStorage.getItem("ed_pedidos") || "[]");
 let pedidoActual = [];
+let pedidoEditandoId = null;
 let sb = null;
 
 function money(n){return new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(Number(n||0))}
@@ -584,23 +594,44 @@ async function guardarPedido(){
   let pedidoGuardado = null;
 
   if(sb){
-    const {data, error: errorPedido} = await sb
-      .from("pedidos")
-      .insert({
-        cliente_id: clienteExistente ? clienteExistente.id : null,
-        cliente_nombre: clienteNombre,
-        cliente_telefono: clienteTelefono,
-        vendedor_nombre: vendedor.nombre,
-        vendedor_id: vendedor.id,
-        estado: document.getElementById("pEstado").value,
-        observaciones: document.getElementById("pObservaciones").value.trim(),
-        total: total
-      })
-      .select()
-      .single();
+    const cabecera = {
+      cliente_id: clienteExistente ? clienteExistente.id : null,
+      cliente_nombre: clienteNombre,
+      cliente_telefono: clienteTelefono,
+      vendedor_nombre: vendedor.nombre,
+      vendedor_id: vendedor.id,
+      estado: document.getElementById("pEstado").value,
+      observaciones: document.getElementById("pObservaciones").value.trim(),
+      total: total
+    };
 
-    if(errorPedido) return alert("Error guardando pedido: " + errorPedido.message);
-    pedidoGuardado = data;
+    if(pedidoEditandoId){
+      const {data, error: errorPedido} = await sb
+        .from("pedidos")
+        .update(cabecera)
+        .eq("id", pedidoEditandoId)
+        .select()
+        .single();
+
+      if(errorPedido) return alert("Error actualizando pedido: " + errorPedido.message);
+      pedidoGuardado = data;
+
+      const {error: errorDelete} = await sb
+        .from("detalle_pedidos")
+        .delete()
+        .eq("pedido_id", pedidoEditandoId);
+
+      if(errorDelete) return alert("Error borrando detalle anterior: " + errorDelete.message);
+    }else{
+      const {data, error: errorPedido} = await sb
+        .from("pedidos")
+        .insert(cabecera)
+        .select()
+        .single();
+
+      if(errorPedido) return alert("Error guardando pedido: " + errorPedido.message);
+      pedidoGuardado = data;
+    }
 
     const detalles = pedidoActual.map(l=>({
       pedido_id: pedidoGuardado.id,
@@ -621,7 +652,7 @@ async function guardarPedido(){
   }
 
   const pedido={
-    id: pedidoGuardado ? pedidoGuardado.id : Date.now(),
+    id: pedidoGuardado ? pedidoGuardado.id : (pedidoEditandoId || Date.now()),
     fecha: pedidoGuardado ? pedidoGuardado.fecha : new Date().toISOString(),
     cliente_id: clienteExistente ? clienteExistente.id : null,
     cliente:clienteNombre,
@@ -634,9 +665,18 @@ async function guardarPedido(){
     total:total
   };
 
-  if(!sb) pedidos.unshift(pedido);
+  if(!sb){
+    if(pedidoEditandoId){
+      const idx = pedidos.findIndex(p=>p.id==pedidoEditandoId);
+      if(idx>=0) pedidos[idx]=pedido;
+    }else{
+      pedidos.unshift(pedido);
+    }
+  }
+
+  const estabaEditando = !!pedidoEditandoId;
   saveLocal();
-  alert("Pedido guardado.");
+  alert(estabaEditando ? "Pedido actualizado." : "Pedido guardado.");
   limpiarPedido();
 
   if(sb) await cargarDesdeSupabase();
@@ -644,8 +684,14 @@ async function guardarPedido(){
 }
 function limpiarPedido(){
   pedidoActual=[];
+  pedidoEditandoId = null;
   ["pCliente","pTelefono","pObservaciones","quickProduct"].forEach(id=>document.getElementById(id).value='');
   document.getElementById("quickQty").value=1;
+  document.getElementById("pEstado").value="Pendiente";
+  const btn = document.getElementById("btnGuardarPedido");
+  if(btn) btn.innerText = "Guardar pedido";
+  const aviso = document.getElementById("avisoEdicionPedido");
+  if(aviso) aviso.remove();
   renderPedidoActual();
 }
 function descargarPreparacion(p){
@@ -672,16 +718,86 @@ function renderDashboard(){
   document.getElementById("mComisiones").innerText=money(com);
   document.getElementById("dashPedidos").innerHTML=renderPedidoTable(pedidos.slice(0,8));
 }
+
+function claseEstado(estado){
+  const e = String(estado||"").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/\s+/g,"-");
+  if(e==="en-preparacion") return "estado-en-preparacion";
+  if(e==="pendiente") return "estado-pendiente";
+  if(e==="preparado") return "estado-preparado";
+  if(e==="entregado") return "estado-entregado";
+  if(e==="cobrado") return "estado-cobrado";
+  if(e==="cancelado") return "estado-cancelado";
+  return "";
+}
+
+function selectEstadoHTML(id, estado){
+  const estados = ["Pendiente","En preparación","Preparado","Entregado","Cobrado","Cancelado"];
+  return `<select class="status-select ${claseEstado(estado)}" onchange="actualizarEstadoPedido(${id}, this.value); this.className='status-select '+claseEstado(this.value);">
+    ${estados.map(e=>`<option ${estado==e?"selected":""}>${e}</option>`).join("")}
+  </select>`;
+}
+
+function modoNuevoPedido(){
+  pedidoEditandoId = null;
+  const btn = document.getElementById("btnGuardarPedido");
+  if(btn) btn.innerText = "Guardar pedido";
+  const aviso = document.getElementById("avisoEdicionPedido");
+  if(aviso) aviso.remove();
+}
+
+async function editarPedido(id){
+  const pedido = pedidos.find(p=>p.id==id);
+  if(!pedido) return alert("No encontré el pedido.");
+
+  const lineas = await obtenerLineasPedido(id);
+
+  pedidoEditandoId = id;
+  pedidoActual = (lineas||[]).filter(Boolean).map(l=>({
+    sku: l.sku || "",
+    nombre: l.producto || l.nombre || "",
+    cantidad: Number(l.cantidad||0),
+    precio: Number(l.precio_unitario || l.precio || 0),
+    subtotal: Number(l.subtotal||0),
+    codigo_barras: l.codigo_barras || ""
+  }));
+
+  document.getElementById("pCliente").value = pedido.cliente || "";
+  document.getElementById("pTelefono").value = pedido.telefono || "";
+  document.getElementById("pEstado").value = pedido.estado || "Pendiente";
+  document.getElementById("pObservaciones").value = pedido.observaciones || "";
+
+  const vendedorIndex = vendedores.findIndex(v=>v.id==pedido.vendedor_id || v.nombre==pedido.vendedor);
+  document.getElementById("pVendedor").value = vendedorIndex >= 0 ? vendedorIndex : "";
+
+  renderPedidoActual();
+
+  const card = document.querySelector("#nuevoPedido .card");
+  let aviso = document.getElementById("avisoEdicionPedido");
+  if(!aviso && card){
+    aviso = document.createElement("div");
+    aviso.id = "avisoEdicionPedido";
+    aviso.className = "edit-alert";
+    card.prepend(aviso);
+  }
+  if(aviso) aviso.innerHTML = `Editando pedido #${id} <button class="btn secondary" onclick="limpiarPedido()">Cancelar edición</button>`;
+
+  const btn = document.getElementById("btnGuardarPedido");
+  if(btn) btn.innerText = "Guardar cambios";
+
+  const navBtn = Array.from(document.querySelectorAll(".nav button")).find(b=>b.textContent.includes("Cargar pedido"));
+  go("nuevoPedido", navBtn || null);
+}
+
 function renderPedidoTable(data){
   return table(["Fecha","Cliente","Vendedor","Estado","Total",""],data.map(p=>[
     new Date(p.fecha).toLocaleDateString("es-AR"),
     p.cliente||'',
     p.vendedor||'',
-    `<select class="status-select" onchange="actualizarEstadoPedido(${p.id}, this.value)">
-      ${["Pendiente","En preparación","Preparado","Entregado","Cobrado","Cancelado"].map(e=>`<option ${p.estado==e?"selected":""}>${e}</option>`).join("")}
-    </select>`,
+    selectEstadoHTML(p.id, p.estado),
     money(p.total),
-    `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Preparación</button> <button class="btn secondary" onclick='exportarPedidoExcel(${p.id})'>Excel</button>`
+    `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Preparación</button> <button class="btn secondary" onclick='editarPedido(${p.id})'>Editar</button> <button class="btn secondary" onclick='exportarPedidoExcel(${p.id})'>Excel</button>`
   ]));
 }
 
