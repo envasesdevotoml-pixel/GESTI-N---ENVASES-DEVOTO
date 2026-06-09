@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestión Envases Devoto</title>
+  <style>
+    :root{
+      --yellow:#fff159;
+      --blue:#3483fa;
+      --blue-dark:#2968c8;
+      --green:#00a650;
+      --red:#d1242f;
+      --bg:#f5f5f5;
+      --card:#fff;
+      --text:#333;
+      --muted:#777;
+      --line:#e5e5e5;
+      --shadow:0 2px 10px rgba(0,0,0,.08);
+      --radius:14px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+    header{
+      background:var(--yellow);
+      height:66px;
+      display:flex;
+      align-items:center;
+      gap:18px;
+      padding:0 24px;
+      box-shadow:var(--shadow);
+      position:sticky;
+      top:0;
+      z-index:20;
+    }
+    .brand{font-weight:900;font-size:22px;letter-spacing:.2px;white-space:nowrap}
+    .top-search{
+      flex:1;
+      background:white;
+      height:42px;
+      border-radius:8px;
+      display:flex;
+      align-items:center;
+      padding:0 14px;
+      box-shadow:0 1px 4px rgba(0,0,0,.13);
+    }
+    .top-search input{border:0;outline:0;width:100%;font-size:15px}
+    .chip{background:#fff;padding:9px 14px;border-radius:999px;font-size:13px;font-weight:700}
+    .layout{display:flex;min-height:calc(100vh - 66px)}
+    aside{
+      width:260px;
+      background:#fff;
+      border-right:1px solid var(--line);
+      padding:18px 12px;
+    }
+    .nav button{
+      border:0;
+      background:transparent;
+      width:100%;
+      text-align:left;
+      padding:13px 14px;
+      border-radius:10px;
+      font-size:15px;
+      cursor:pointer;
+      margin-bottom:5px;
+      color:#444;
+    }
+    .nav button.active,.nav button:hover{background:#eef4ff;color:var(--blue);font-weight:800}
+    main{flex:1;padding:24px;overflow:auto}
+    h1{margin:0 0 18px;font-size:26px}
+    h2{margin:0 0 14px;font-size:20px}
+    .section{display:none}
+    .section.active{display:block}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(170px,1fr));gap:16px;margin-bottom:20px}
+    .card{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:18px;
+      margin-bottom:16px;
+    }
+    .metric-title{font-size:13px;color:var(--muted)}
+    .metric-value{font-size:29px;font-weight:900;margin-top:8px}
+    .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+    input,select,textarea{
+      border:1px solid var(--line);
+      border-radius:8px;
+      padding:11px 12px;
+      font-size:14px;
+      outline:none;
+      background:#fff;
+    }
+    textarea{min-height:80px;resize:vertical}
+    input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(52,131,250,.12)}
+    .btn{
+      border:0;
+      border-radius:8px;
+      padding:11px 16px;
+      background:var(--blue);
+      color:#fff;
+      font-weight:800;
+      cursor:pointer;
+    }
+    .btn:hover{background:var(--blue-dark)}
+    .btn.secondary{background:#fff;color:#333;border:1px solid var(--line)}
+    .btn.secondary:hover{background:#fafafa}
+    .btn.success{background:var(--green)}
+    .btn.danger{background:var(--red)}
+    .pedido-head{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:10px;margin-bottom:14px}
+    .quick-box{display:grid;grid-template-columns:1fr 180px auto;gap:10px;margin-bottom:14px}
+    .order-table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;border:1px solid var(--line)}
+    .order-table th,.order-table td{padding:11px;border-bottom:1px solid var(--line);font-size:14px;text-align:left;vertical-align:middle}
+    .order-table th{background:#fafafa;color:#555;font-weight:900}
+    .order-table input{width:100%;padding:8px}
+    .total-row{display:flex;justify-content:space-between;align-items:center;background:#fffbe6;border:1px solid #f0df8a;border-radius:12px;padding:16px;margin-top:14px;font-size:20px;font-weight:900}
+    table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+    th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}
+    th{background:#fafafa;font-weight:900;color:#555}
+    tr:hover td{background:#fbfbfb}
+    .badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#eef4ff;color:var(--blue);font-weight:800;font-size:12px}
+    .badge.green{background:#e6f7ee;color:var(--green)}
+    .badge.yellow{background:#fff7cc;color:#8a6d00}
+    .empty{text-align:center;color:var(--muted);padding:26px}
+    .small{font-size:12px;color:var(--muted)}
+    .warning{background:#fff3cd;border:1px solid #ffe69c;border-radius:10px;padding:12px;margin-bottom:14px}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .status-select{min-width:150px}
+    @media(max-width:1000px){
+      .layout{flex-direction:column}
+      aside{width:100%;overflow:auto}
+      .nav{display:flex;gap:8px}
+      .nav button{white-space:nowrap}
+      .grid{grid-template-columns:1fr 1fr}
+      .pedido-head,.quick-box,.two{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand">ENVASES DEVOTO</div>
+  <div class="top-search"><input id="globalSearch" placeholder="Buscar pedido, cliente, producto o vendedor..." oninput="renderAll()"></div>
+  <div class="chip">Administración</div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="nav">
+      <button class="active" onclick="go('dashboard',this)">📊 Dashboard</button>
+      <button onclick="go('nuevoPedido',this)">🛒 Cargar pedido</button>
+      <button onclick="go('pedidos',this)">📋 Pedidos</button>
+      <button onclick="go('preparacion',this)">📦 Preparación</button>
+      <button onclick="go('productos',this)">🏷️ Productos</button>
+      <button onclick="go('clientes',this)">👥 Clientes</button>
+      <button onclick="go('vendedores',this)">👨‍💼 Vendedores</button>
+      <button onclick="go('comisiones',this)">💰 Comisiones</button>
+      <button onclick="go('config',this)">⚙️ Configuración</button>
+    </div>
+  </aside>
+
+  <main>
+    <section id="dashboard" class="section active">
+      <h1>Panel principal</h1>
+      <div class="grid">
+        <div class="card"><div class="metric-title">Pedidos</div><div class="metric-value" id="mPedidos">0</div></div>
+        <div class="card"><div class="metric-title">Ventas cargadas</div><div class="metric-value" id="mVentas">$0</div></div>
+        <div class="card"><div class="metric-title">Productos</div><div class="metric-value" id="mProductos">0</div></div>
+        <div class="card"><div class="metric-title">Comisiones</div><div class="metric-value" id="mComisiones">$0</div></div>
+      </div>
+      <div class="card">
+        <h2>Últimos pedidos</h2>
+        <div id="dashPedidos"></div>
+      </div>
+    </section>
+
+    <section id="nuevoPedido" class="section">
+      <h1>Cargar pedido manual</h1>
+      <div class="card">
+        <div class="warning">Pensado para pedidos que llegan por WhatsApp: elegís vendedor, cargás cliente y vas agregando productos rápido por SKU, código de barras o nombre.</div>
+        <div class="pedido-head">
+          <input id="pCliente" placeholder="Cliente / Razón social">
+          <input id="pTelefono" placeholder="WhatsApp / Teléfono">
+          <select id="pVendedor"></select>
+          <select id="pEstado">
+            <option>Pendiente</option>
+            <option>En preparación</option>
+            <option>Preparado</option>
+            <option>Entregado</option>
+            <option>Cobrado</option>
+            <option>Cancelado</option>
+          </select>
+        </div>
+        <textarea id="pObservaciones" placeholder="Observaciones del pedido"></textarea>
+        <h2 style="margin-top:18px">Agregar producto</h2>
+        <div class="quick-box">
+          <input id="quickProduct" placeholder="SKU, código de barras o nombre del producto">
+          <input id="quickQty" type="number" min="1" value="1" placeholder="Cantidad" onkeydown="if(event.key==='Enter') addQuickProduct()">
+          <button class="btn" onclick="addQuickProduct()">Agregar</button>
+        </div>
+        <table class="order-table">
+          <thead>
+            <tr>
+              <th style="width:130px">SKU</th>
+              <th>Producto</th>
+              <th style="width:110px">Cantidad</th>
+              <th style="width:130px">Precio</th>
+              <th style="width:130px">Subtotal</th>
+              <th style="width:80px"></th>
+            </tr>
+          </thead>
+          <tbody id="pedidoLineas"></tbody>
+        </table>
+        <div class="total-row"><span>Total</span><span id="pedidoTotal">$0</span></div>
+        <div class="toolbar" style="margin-top:16px">
+          <button class="btn success" onclick="guardarPedido()">Guardar pedido</button>
+          <button class="btn secondary" onclick="descargarPreparacionActual()">Descargar preparación sin precios</button>
+          <button class="btn secondary" onclick="limpiarPedido()">Limpiar</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="pedidos" class="section">
+      <h1>Pedidos</h1>
+      <div class="toolbar">
+        <input id="buscarPedidos" placeholder="Buscar pedidos..." oninput="renderPedidos()">
+      </div>
+      <div id="tablaPedidos"></div>
+    </section>
+
+    <section id="preparacion" class="section">
+      <h1>Preparación</h1>
+      <div class="card">
+        <p class="small">Vista para armar pedidos sin mostrar precios.</p>
+      </div>
+      <div id="tablaPreparacion"></div>
+    </section>
+
+    <section id="productos" class="section">
+      <h1>Productos</h1>
+      <div class="toolbar">
+        <button class="btn" onclick="sincronizarProductos()">Sincronizar desde Google Sheets</button>
+        <input id="buscarProducto" placeholder="Buscar SKU, nombre o código..." oninput="renderProductos()">
+      </div>
+      <div id="tablaProductos"></div>
+    </section>
+
+    <section id="clientes" class="section">
+      <h1>Clientes</h1>
+      <div class="card">
+        <div class="toolbar">
+          <input id="cNombre" placeholder="Nombre cliente">
+          <input id="cTelefono" placeholder="Teléfono">
+          <input id="cDireccion" placeholder="Dirección">
+          <button class="btn" onclick="agregarCliente()">Agregar cliente</button>
+        </div>
+      </div>
+      <div id="tablaClientes"></div>
+    </section>
+
+    <section id="vendedores" class="section">
+      <h1>Vendedores</h1>
+      <div class="card">
+        <div class="toolbar">
+          <input id="vNombre" placeholder="Nombre vendedor">
+          <input id="vTelefono" placeholder="Teléfono">
+          <input id="vComision" type="number" placeholder="% comisión">
+          <button class="btn" onclick="agregarVendedor()">Agregar vendedor</button>
+        </div>
+      </div>
+      <div id="tablaVendedores"></div>
+    </section>
+
+    <section id="comisiones" class="section">
+      <h1>Comisiones</h1>
+      <div id="tablaComisiones"></div>
+    </section>
+
+    <section id="config" class="section">
+      <h1>Configuración</h1>
+      <div class="card">
+        <div class="warning">Pegá la URL de Supabase y la Publishable key. No uses la Secret key.</div>
+        <div class="toolbar">
+          <input id="cfgUrl" style="min-width:360px" placeholder="Supabase URL">
+          <input id="cfgKey" style="min-width:420px" placeholder="Supabase Publishable key">
+          <button class="btn" onclick="guardarConfig()">Guardar</button>
+        </div>
+        <p class="small">Google Sheets CSV ya está configurado.</p>
+        <button class="btn secondary" onclick="exportBackup()">Descargar backup local JSON</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-1cWV4vv5RHwzD2FaPTZCKVS8KdJw4csZaYsqNt0OQtYb9Ef7qqwgCjvyG6WxGWz6RVzXPAP-ZwOK/pub?gid=805595643&single=true&output=csv";
+
+let productos = JSON.parse(localStorage.getItem("ed_productos") || "[]");
+let vendedores = JSON.parse(localStorage.getItem("ed_vendedores") || "[]");
+let clientes = JSON.parse(localStorage.getItem("ed_clientes") || "[]");
+let pedidos = JSON.parse(localStorage.getItem("ed_pedidos") || "[]");
+let pedidoActual = [];
+let sb = null;
+
+function money(n){return new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(Number(n||0))}
+function saveLocal(){
+  localStorage.setItem("ed_productos",JSON.stringify(productos));
+  localStorage.setItem("ed_vendedores",JSON.stringify(vendedores));
+  localStorage.setItem("ed_clientes",JSON.stringify(clientes));
+  localStorage.setItem("ed_pedidos",JSON.stringify(pedidos));
+}
+function init(){
+  document.getElementById("cfgUrl").value = localStorage.getItem("ed_supabase_url") || "";
+  document.getElementById("cfgKey").value = localStorage.getItem("ed_supabase_key") || "";
+  const url = document.getElementById("cfgUrl").value.trim();
+  const key = document.getElementById("cfgKey").value.trim();
+  if(url && key && window.supabase) sb = window.supabase.createClient(url,key);
+  cargarDesdeSupabase();
+  renderAll();
+}
+async function cargarDesdeSupabase(){
+  if(!sb) return;
+  try{
+    const v = await sb.from("vendedores").select("*").order("nombre");
+    if(!v.error && v.data) vendedores = v.data;
+    const c = await sb.from("clientes").select("*").order("nombre");
+    if(!c.error && c.data) clientes = c.data;
+    saveLocal();
+    renderAll();
+  }catch(e){console.log(e)}
+}
+function guardarConfig(){
+  localStorage.setItem("ed_supabase_url",document.getElementById("cfgUrl").value.trim());
+  localStorage.setItem("ed_supabase_key",document.getElementById("cfgKey").value.trim());
+  init();
+  alert("Configuración guardada.");
+}
+function go(id,btn){
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+  document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  renderAll();
+}
+function table(headers,rows){
+  if(!rows.length) return '<div class="card empty">Sin datos para mostrar.</div>';
+  return '<table><thead><tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+
+    rows.map(r=>'<tr>'+r.map(c=>'<td>'+(c ?? '')+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+}
+function parseCSV(text){
+  const rows=[];let row=[],cell='',quote=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i],n=text[i+1];
+    if(c=='"'&&quote&&n=='"'){cell+='"';i++}
+    else if(c=='"'){quote=!quote}
+    else if(c==','&&!quote){row.push(cell);cell=''}
+    else if((c=='\n'||c=='\r')&&!quote){
+      if(cell||row.length){row.push(cell);rows.push(row);row=[];cell=''}
+      if(c=='\r'&&n=='\n')i++
+    } else cell+=c;
+  }
+  if(cell||row.length){row.push(cell);rows.push(row)}
+  return rows;
+}
+function cleanPrice(v){
+  return Number(String(v||'').replace(/\$/g,'').replace(/\./g,'').replace(',','.').replace(/[^\d.]/g,''))||0;
+}
+async function sincronizarProductos(){
+  try{
+    const res = await fetch(SHEETS_CSV_URL);
+    const csv = await res.text();
+    const rows = parseCSV(csv);
+    const headers = rows.shift().map(h=>h.trim().toLowerCase());
+    const find = (terms) => headers.findIndex(h => terms.some(t=>h.includes(t)));
+    const iSku=find(['sku']);
+    const iProd=find(['producto']);
+    const iCod=find(['codigo','código','barra']);
+    const iPrecio=find(['precio']);
+    const iImg=find(['imagen','url']);
+    const iCat=find(['categoria','categoría']);
+    const iMed=find(['medida']);
+    const nuevos = rows.map(r=>({
+      sku:(r[iSku]||'').trim(),
+      nombre:(r[iProd]||'').trim(),
+      codigo_barras:(r[iCod]||'').trim(),
+      precio:cleanPrice(r[iPrecio]),
+      imagen_url:iImg>=0?(r[iImg]||'').trim():'',
+      categoria:iCat>=0?(r[iCat]||'').trim():'',
+      medidas:iMed>=0?(r[iMed]||'').trim():'',
+      activo:true
+    })).filter(p=>p.sku&&p.nombre);
+    productos = nuevos;
+    if(sb){
+      const {error} = await sb.from("productos").upsert(nuevos,{onConflict:"sku"});
+      if(error) throw error;
+    }
+    saveLocal();
+    renderAll();
+    alert("Productos sincronizados: " + nuevos.length);
+  }catch(e){alert("No se pudo sincronizar. Revisá Google Sheets o Supabase."); console.error(e)}
+}
+function findProduct(q){
+  q=String(q||'').trim().toLowerCase();
+  return productos.find(p=>String(p.sku).toLowerCase()==q || String(p.codigo_barras).toLowerCase()==q) ||
+         productos.find(p=>String(p.nombre).toLowerCase().includes(q));
+}
+function addQuickProduct(){
+  const q=document.getElementById("quickProduct").value;
+  const qty=Number(document.getElementById("quickQty").value||1);
+  const p=findProduct(q);
+  if(!p) return alert("No encontré el producto.");
+  const existing=pedidoActual.find(x=>x.sku==p.sku);
+  if(existing){existing.cantidad += qty; existing.subtotal = existing.cantidad * existing.precio}
+  else pedidoActual.push({sku:p.sku,nombre:p.nombre,cantidad:qty,precio:Number(p.precio||0),subtotal:qty*Number(p.precio||0),codigo_barras:p.codigo_barras||''});
+  document.getElementById("quickProduct").value='';
+  document.getElementById("quickQty").value=1;
+  renderPedidoActual();
+}
+function updateQty(i,v){
+  pedidoActual[i].cantidad=Number(v||0);
+  pedidoActual[i].subtotal=pedidoActual[i].cantidad*pedidoActual[i].precio;
+  renderPedidoActual();
+}
+function removeLine(i){pedidoActual.splice(i,1);renderPedidoActual()}
+function renderPedidoActual(){
+  const tbody=document.getElementById("pedidoLineas");
+  tbody.innerHTML=pedidoActual.map((l,i)=>`<tr>
+    <td>${l.sku}</td>
+    <td>${l.nombre}<div class="small">${l.codigo_barras||''}</div></td>
+    <td><input type="number" min="1" value="${l.cantidad}" onchange="updateQty(${i},this.value)"></td>
+    <td>${money(l.precio)}</td>
+    <td>${money(l.subtotal)}</td>
+    <td><button class="btn danger" onclick="removeLine(${i})">X</button></td>
+  </tr>`).join('');
+  document.getElementById("pedidoTotal").innerText=money(pedidoActual.reduce((a,l)=>a+l.subtotal,0));
+}
+async function guardarPedido(){
+  if(!pedidoActual.length) return alert("Agregá productos al pedido.");
+  const vendedorIdx=document.getElementById("pVendedor").value;
+  const vendedor=vendedores[vendedorIdx]||null;
+  const clienteNombre=document.getElementById("pCliente").value.trim();
+  const pedido={
+    id:Date.now(),
+    fecha:new Date().toISOString(),
+    cliente:clienteNombre,
+    telefono:document.getElementById("pTelefono").value.trim(),
+    vendedor:vendedor?vendedor.nombre:'',
+    vendedor_id:vendedor?vendedor.id:null,
+    estado:document.getElementById("pEstado").value,
+    observaciones:document.getElementById("pObservaciones").value.trim(),
+    lineas:[...pedidoActual],
+    total:pedidoActual.reduce((a,l)=>a+l.subtotal,0)
+  };
+  pedidos.unshift(pedido);
+  saveLocal();
+  alert("Pedido guardado.");
+  limpiarPedido();
+  renderAll();
+}
+function limpiarPedido(){
+  pedidoActual=[];
+  ["pCliente","pTelefono","pObservaciones","quickProduct"].forEach(id=>document.getElementById(id).value='');
+  document.getElementById("quickQty").value=1;
+  renderPedidoActual();
+}
+function descargarPreparacion(p){
+  const lines = p.lineas.map(l=>`${l.sku};${l.nombre};${l.cantidad};${l.codigo_barras||''}`).join("\n");
+  download(`preparacion_pedido_${p.id}.csv`,`SKU;Producto;Cantidad;Codigo de barras\n${lines}`);
+}
+function descargarPreparacionActual(){
+  const p={id:'actual',lineas:pedidoActual};
+  descargarPreparacion(p);
+}
+function download(name,content){
+  const blob=new Blob([content],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  a.click();
+}
+function renderDashboard(){
+  const total=pedidos.reduce((a,p)=>a+Number(p.total||0),0);
+  const com=calcComisiones().reduce((a,c)=>a+c.importe,0);
+  document.getElementById("mPedidos").innerText=pedidos.length;
+  document.getElementById("mVentas").innerText=money(total);
+  document.getElementById("mProductos").innerText=productos.length;
+  document.getElementById("mComisiones").innerText=money(com);
+  document.getElementById("dashPedidos").innerHTML=renderPedidoTable(pedidos.slice(0,8));
+}
+function renderPedidoTable(data){
+  return table(["Fecha","Cliente","Vendedor","Estado","Total",""],data.map(p=>[
+    new Date(p.fecha).toLocaleDateString("es-AR"),
+    p.cliente||'',
+    p.vendedor||'',
+    `<span class="badge">${p.estado}</span>`,
+    money(p.total),
+    `<button class="btn secondary" onclick='descargarPreparacion(${JSON.stringify(p).replace(/'/g,"&apos;")})'>Preparación</button>`
+  ]));
+}
+function renderPedidos(){
+  const q=(document.getElementById("buscarPedidos")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
+  const data=pedidos.filter(p=>JSON.stringify(p).toLowerCase().includes(q));
+  document.getElementById("tablaPedidos").innerHTML=renderPedidoTable(data);
+}
+function renderPreparacion(){
+  const data=pedidos.filter(p=>p.estado!="Entregado"&&p.estado!="Cancelado");
+  document.getElementById("tablaPreparacion").innerHTML=table(["Pedido","Cliente","Productos","Estado",""],data.map(p=>[
+    p.id,p.cliente||'',p.lineas.map(l=>`${l.sku} x${l.cantidad}`).join("<br>"),`<span class="badge yellow">${p.estado}</span>`,`<button class="btn secondary" onclick='descargarPreparacion(${JSON.stringify(p).replace(/'/g,"&apos;")})'>Descargar</button>`
+  ]));
+}
+function renderProductos(){
+  const q=(document.getElementById("buscarProducto")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
+  const data=productos.filter(p=>[p.sku,p.nombre,p.codigo_barras,p.categoria].join(" ").toLowerCase().includes(q)).slice(0,250);
+  document.getElementById("tablaProductos").innerHTML=table(["SKU","Producto","Código","Precio","Categoría","Medidas"],data.map(p=>[p.sku,p.nombre,p.codigo_barras||'',money(p.precio),p.categoria||'',p.medidas||'']));
+}
+async function agregarCliente(){
+  const c={nombre:document.getElementById("cNombre").value.trim(),telefono:document.getElementById("cTelefono").value.trim(),direccion:document.getElementById("cDireccion").value.trim()};
+  if(!c.nombre) return alert("Falta nombre.");
+  if(sb){const {error}=await sb.from("clientes").insert(c); if(error) return alert(error.message); await cargarDesdeSupabase()}
+  else clientes.push(c);
+  saveLocal(); renderAll();
+}
+function renderClientes(){
+  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Dirección"],clientes.map(c=>[c.nombre,c.telefono||'',c.direccion||'']));
+}
+async function agregarVendedor(){
+  const v={nombre:document.getElementById("vNombre").value.trim(),telefono:document.getElementById("vTelefono").value.trim(),porcentaje_comision:Number(document.getElementById("vComision").value||0),activo:true};
+  if(!v.nombre) return alert("Falta nombre.");
+  if(sb){const {error}=await sb.from("vendedores").insert(v); if(error) return alert(error.message); await cargarDesdeSupabase()}
+  else vendedores.push(v);
+  saveLocal(); renderAll();
+}
+function renderVendedores(){
+  document.getElementById("pVendedor").innerHTML='<option value="">Seleccionar vendedor</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
+  document.getElementById("tablaVendedores").innerHTML=table(["Nombre","Teléfono","Comisión","Activo"],vendedores.map(v=>[v.nombre,v.telefono||'',(v.porcentaje_comision||0)+"%",v.activo!==false?"Sí":"No"]));
+}
+function calcComisiones(){
+  return pedidos.map(p=>{
+    const v=vendedores.find(x=>x.nombre==p.vendedor);
+    const pct=Number(v?.porcentaje_comision||0);
+    return {vendedor:p.vendedor,cliente:p.cliente,total:p.total,pct,importe:p.total*pct/100,estado:"Pendiente"};
+  });
+}
+function renderComisiones(){
+  document.getElementById("tablaComisiones").innerHTML=table(["Vendedor","Cliente","Venta","%","Comisión","Estado"],calcComisiones().map(c=>[c.vendedor||'',c.cliente||'',money(c.total),c.pct+"%",money(c.importe),c.estado]));
+}
+function exportBackup(){
+  download("backup_gestion_envases_devoto.json",JSON.stringify({productos,vendedores,clientes,pedidos},null,2));
+}
+function renderAll(){
+  renderDashboard();renderPedidoActual();renderPedidos();renderPreparacion();renderProductos();renderClientes();renderVendedores();renderComisiones();
+}
+init();
+</script>
+</body>
+</html>
