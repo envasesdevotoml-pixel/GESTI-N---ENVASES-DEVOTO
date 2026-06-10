@@ -729,38 +729,66 @@ async function cargarDesdeSupabase(){
       .order("fecha",{ascending:false});
 
     if(!p.error && p.data){
-      pedidos = p.data.map(x=>({
+      // Mantiene datos locales nuevos (referido / diferida) si Supabase todavía no los devolvió.
+      const pedidosLocalesPrevios = parseJsonSafe(localStorage.getItem("ed_pedidos"), []);
+      const localPorId = {};
+      (pedidosLocalesPrevios || []).forEach(lp=>{ if(lp && lp.id !== undefined) localPorId[String(lp.id)] = lp; });
+
+      pedidos = p.data.map(x=>{
+        const lp = localPorId[String(x.id)] || {};
+        return {
         id:x.id,
         fecha:x.fecha,
         cliente_id:x.cliente_id,
-        cliente:x.cliente_nombre || "",
-        telefono:x.cliente_telefono || "",
-        vendedor:x.vendedor_nombre || "",
-        vendedor_id:x.vendedor_id,
-        estado:x.estado,
-        observaciones:x.observaciones || "",
-        lineas:[],
-        total:x.total,
-        subtotal:x.subtotal || x.total || 0,
-        descuento_porcentaje:x.descuento_porcentaje || 0,
-        descuento_importe:x.descuento_importe || 0,
-        ajuste_porcentaje:x.ajuste_porcentaje || 0,
-        ajuste_importe:x.ajuste_importe || 0,
-        base_comision:x.base_comision || x.subtotal || x.total || 0,
-        porcentaje_comision:x.porcentaje_comision || 0,
-        referido_nombre:x.referido_nombre || "",
-        referido_id:x.referido_id || null,
-        porcentaje_comision_diferida:x.porcentaje_comision_diferida || 0,
-        base_comision_diferida:x.base_comision_diferida || 0,
-        comision_diferida_importe:x.comision_diferida_importe || 0,
-        comision_estado:x.comision_estado || x.commission_status || "",
-        comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || "",
-        comision_pagado_importe:Number(x.comision_pagado_importe || x.commission_paid_amount || 0),
-        comision_pagos:parseJsonSafe(x.comision_pagos || x.commission_payments || "[]", []),
-        usuario_nombre:x.usuario_nombre || x.created_by || x.usuario || "",
-        metodo_entrega:x.metodo_entrega || x.entrega || "",
-        metodo_pago:x.metodo_pago || x.pago || ""
-      }));
+        cliente:x.cliente_nombre || lp.cliente || "",
+        telefono:x.cliente_telefono || lp.telefono || "",
+        vendedor:x.vendedor_nombre || lp.vendedor || "",
+        vendedor_id:x.vendedor_id || lp.vendedor_id || null,
+        estado:x.estado || lp.estado || "Pendiente",
+        observaciones:x.observaciones || lp.observaciones || "",
+        lineas:Array.isArray(lp.lineas) ? lp.lineas : [],
+        total:x.total || lp.total || 0,
+        subtotal:x.subtotal || lp.subtotal || x.total || lp.total || 0,
+        descuento_porcentaje:x.descuento_porcentaje || lp.descuento_porcentaje || 0,
+        descuento_importe:x.descuento_importe || lp.descuento_importe || 0,
+        ajuste_porcentaje:x.ajuste_porcentaje || lp.ajuste_porcentaje || 0,
+        ajuste_importe:x.ajuste_importe || lp.ajuste_importe || 0,
+        base_comision:x.base_comision || lp.base_comision || x.subtotal || lp.subtotal || x.total || lp.total || 0,
+        porcentaje_comision:x.porcentaje_comision || lp.porcentaje_comision || 0,
+        referido_nombre:x.referido_nombre || lp.referido_nombre || lp.referido || "",
+        referido_id:x.referido_id || lp.referido_id || null,
+        porcentaje_comision_diferida:x.porcentaje_comision_diferida || lp.porcentaje_comision_diferida || 0,
+        base_comision_diferida:x.base_comision_diferida || lp.base_comision_diferida || 0,
+        comision_diferida_importe:x.comision_diferida_importe || lp.comision_diferida_importe || 0,
+        comision_estado:x.comision_estado || x.commission_status || lp.comision_estado || "",
+        comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || lp.comision_pagada_fecha || "",
+        comision_pagado_importe:Number(x.comision_pagado_importe || x.commission_paid_amount || lp.comision_pagado_importe || 0),
+        comision_pagos:parseJsonSafe(x.comision_pagos || x.commission_payments || lp.comision_pagos || "[]", []),
+        usuario_nombre:x.usuario_nombre || x.created_by || x.usuario || lp.usuario_nombre || "",
+        metodo_entrega:x.metodo_entrega || x.entrega || lp.metodo_entrega || "",
+        metodo_pago:x.metodo_pago || x.pago || lp.metodo_pago || ""
+        };
+      });
+
+      // Trae el detalle para poder recalcular base diferida aunque la cabecera vieja no la tenga.
+      const d = await sb.from("detalle_pedidos").select("*");
+      if(!d.error && d.data){
+        const porPedido = {};
+        d.data.forEach(l=>{
+          const pid = String(l.pedido_id || "");
+          if(!porPedido[pid]) porPedido[pid] = [];
+          porPedido[pid].push({
+            sku:l.sku || "",
+            nombre:l.producto || l.nombre || "",
+            cantidad:Number(l.cantidad||0),
+            precio:Number(l.precio_unitario || l.precio || 0),
+            subtotal:Number(l.subtotal||0),
+            codigo_barras:l.codigo_barras || "",
+            comision_diferida: !!(l.comision_diferida || productos.find(p=>p.sku===(l.sku||""))?.comision_diferida)
+          });
+        });
+        pedidos = pedidos.map(ped=>({ ...ped, lineas: porPedido[String(ped.id)] || ped.lineas || [] }));
+      }
     }
 
     saveLocal();
@@ -1935,13 +1963,15 @@ function calcComisionesDetalle(){
       fecha_pago:fechaPagoComisionPedido(p, keyNormal)
     });
 
-    const referidoNombre = p.referido_nombre || "";
     const referidoId = p.referido_id || "";
-    const pctDif = Number(p.porcentaje_comision_diferida || 0);
-    const baseDif = baseComisionDiferidaPedido(p);
+    const referidoNombre = p.referido_nombre || p.referido || (vendedores.find(v=>String(v.id)===String(referidoId))?.nombre || "");
+    const pctDif = Number(p.porcentaje_comision_diferida || p.comision_diferida_porcentaje || 0);
+    let baseDif = baseComisionDiferidaPedido(p);
+    const importeDifGuardado = Number(p.comision_diferida_importe || 0);
+    if(!baseDif && importeDifGuardado > 0 && pctDif > 0) baseDif = importeDifGuardado * 100 / pctDif;
     if(referidoNombre && pctDif > 0 && baseDif > 0){
       const keyDif = String(p.id) + "__dif";
-      const importeDif = baseDif * pctDif / 100;
+      const importeDif = importeDifGuardado > 0 ? importeDifGuardado : (baseDif * pctDif / 100);
       const pagadoDif = totalPagadoComisionPedido(p, importeDif, keyDif);
       out.push({
         comision_key:keyDif,
