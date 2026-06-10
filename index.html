@@ -511,6 +511,7 @@
             <option value="Parcial">Parciales</option>
             <option value="Pagada">Pagadas</option>
           </select>
+          <button class="btn success" onclick="registrarPagoGeneralComision()">Registrar pago general</button>
           <button class="btn success" onclick="pagarComisionesFiltradas()">Marcar filtradas como pagadas</button>
           <button class="btn secondary" onclick="limpiarFiltrosComisiones()">Limpiar filtros</button>
         </div>
@@ -2044,6 +2045,71 @@ async function pagarComisionesFiltradas(){
     await agregarPagoComision(c.pedido_id, c.saldo, "Pago masivo de saldo filtrado");
   }
   saveLocal();
+  renderAll();
+}
+
+
+async function registrarPagoGeneralComision(){
+  const sel = document.getElementById("fComVendedor");
+  let vendedorKey = sel?.value || "";
+
+  if(!vendedorKey){
+    const opciones = vendedores.filter(v=>v.activo!==false);
+    if(!opciones.length) return alert("No hay vendedores cargados.");
+    const listado = opciones.map((v,i)=>`${i+1}) ${v.nombre}`).join("\n");
+    const elegido = prompt("Elegí el vendedor para registrar el pago general:\n\n" + listado + "\n\nIngresá el número:");
+    if(elegido === null) return;
+    const idx = Number(elegido) - 1;
+    if(idx < 0 || idx >= opciones.length) return alert("Vendedor inválido.");
+    vendedorKey = opciones[idx].id || opciones[idx].nombre;
+  }
+
+  const vendedorObj = vendedores.find(v=>String(v.id||v.nombre)===String(vendedorKey) || String(v.nombre)===String(vendedorKey));
+  const vendedorNombre = vendedorObj?.nombre || vendedorKey;
+
+  const pendientes = calcComisionesDetalle()
+    .filter(c => (String(c.vendedor_id||c.vendedor)===String(vendedorKey) || String(c.vendedor)===String(vendedorNombre)) && c.saldo > 0)
+    .sort((a,b)=>{
+      const fa = new Date(a.fecha || 0).getTime();
+      const fb = new Date(b.fecha || 0).getTime();
+      if(fa !== fb) return fa - fb;
+      return Number(a.pedido_id||0) - Number(b.pedido_id||0);
+    });
+
+  if(!pendientes.length) return alert(`No hay comisiones pendientes para ${vendedorNombre}.`);
+
+  const totalPendiente = pendientes.reduce((a,c)=>a+c.saldo,0);
+  const valor = prompt(`Pago general a ${vendedorNombre}\n\nSaldo pendiente total: ${money(totalPendiente)}\nPedidos pendientes/parciales: ${pendientes.length}\n\nIngrese importe pagado:`);
+  if(valor === null) return;
+  const importeTotal = Number(String(valor).replace(/\./g,"").replace(",",".").replace(/[^0-9.]/g,""));
+  if(!importeTotal || importeTotal <= 0) return alert("Importe inválido.");
+
+  let restante = importeTotal;
+  const aplicaciones = [];
+  for(const c of pendientes){
+    if(restante <= 0) break;
+    const aplicar = Math.min(restante, c.saldo);
+    aplicaciones.push({pedido_id:c.pedido_id, cliente:c.cliente, saldo:c.saldo, aplicar});
+    restante -= aplicar;
+  }
+
+  const aplicado = aplicaciones.reduce((a,x)=>a+x.aplicar,0);
+  const sobrante = Math.max(0, importeTotal - aplicado);
+  const preview = aplicaciones.map(x=>`Pedido #${x.pedido_id}${x.cliente ? " - " + x.cliente : ""}: ${money(x.aplicar)}${x.aplicar < x.saldo ? " (parcial)" : ""}`).join("\n");
+
+  if(!confirm(`Se aplicará el pago general así:\n\n${preview}\n\nTotal ingresado: ${money(importeTotal)}\nTotal aplicado: ${money(aplicado)}\nSobrante sin aplicar: ${money(sobrante)}\n\n¿Confirmás?`)) return;
+
+  const nota = prompt("Observación opcional para este pago general:", "Pago general a vendedor") || "Pago general a vendedor";
+
+  for(const x of aplicaciones){
+    await agregarPagoComision(x.pedido_id, x.aplicar, `${nota} - aplicado automáticamente`);
+  }
+
+  if(sobrante > 0){
+    alert(`Pago registrado. Quedó un sobrante de ${money(sobrante)} sin aplicar porque no había más comisiones pendientes.`);
+  }else{
+    alert("Pago general registrado correctamente.");
+  }
   renderAll();
 }
 
