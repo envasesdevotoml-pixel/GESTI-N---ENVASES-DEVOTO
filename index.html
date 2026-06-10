@@ -2842,14 +2842,38 @@ function documentoRemitoGenerico(p, lineas, completo=true){
   const descuento = Number(p?.descuento_importe||0);
   const ajuste = Number(p?.ajuste_importe||0);
   const total = Number(p?.total || 0);
-  const rows = (lineas||[]).map(l=>`
-    <tr>
-      <td>${escapeHtml(l.sku||'')}</td>
-      <td>${escapeHtml(l.producto || l.nombre || '')}</td>
-      <td class="num">${escapeHtml(l.cantidad||'')}</td>
-      <td class="num">${money(l.precio_unitario || l.precio || 0)}</td>
-      <td class="num">${money(l.subtotal||0)}</td>
-    </tr>`).join('');
+  const descuentoPorcentaje = Number(p?.descuento_porcentaje||0) || (subtotal ? (descuento * 100 / subtotal) : 0);
+  const tieneDescuento = descuento > 0 || descuentoPorcentaje > 0;
+
+  const rows = (lineas||[]).map(l=>{
+    const cantidad = Number(l.cantidad||0);
+    const precioLista = Number(l.precio_unitario || l.precio || (cantidad ? Number(l.subtotal||0) / cantidad : 0));
+    const subtotalListaLinea = Number(l.subtotal || (precioLista * cantidad));
+    const precioFinal = tieneDescuento ? precioLista * (1 - descuentoPorcentaje / 100) : precioLista;
+    const subtotalFinalLinea = tieneDescuento ? subtotalListaLinea * (1 - descuentoPorcentaje / 100) : subtotalListaLinea;
+
+    if(tieneDescuento){
+      return `
+        <tr>
+          <td>${escapeHtml(l.sku||'')}</td>
+          <td>${escapeHtml(l.producto || l.nombre || '')}</td>
+          <td class="num">${escapeHtml(l.cantidad||'')}</td>
+          <td class="num">${money(precioLista)}</td>
+          <td class="num">${descuentoPorcentaje.toFixed(2).replace('.00','')}%</td>
+          <td class="num">${money(precioFinal)}</td>
+          <td class="num">${money(subtotalFinalLinea)}</td>
+        </tr>`;
+    }
+
+    return `
+      <tr>
+        <td>${escapeHtml(l.sku||'')}</td>
+        <td>${escapeHtml(l.producto || l.nombre || '')}</td>
+        <td class="num">${escapeHtml(l.cantidad||'')}</td>
+        <td class="num">${money(precioLista)}</td>
+        <td class="num">${money(subtotalListaLinea)}</td>
+      </tr>`;
+  }).join('');
 
   const empresa = completo ? `
     <div class="box empresa">
@@ -2864,6 +2888,10 @@ function documentoRemitoGenerico(p, lineas, completo=true){
       <div style="font-size:22px;font-weight:900">REMITO</div>
       <div class="nota">Documento no fiscal</div>
     </div>`;
+
+  const encabezadoTabla = tieneDescuento
+    ? `<tr><th style="width:70px">SKU</th><th>Producto</th><th style="width:55px">Cant.</th><th style="width:88px">P. Lista</th><th style="width:62px">Desc.</th><th style="width:88px">P. Final</th><th style="width:92px">Subtotal</th></tr>`
+    : `<tr><th style="width:80px">SKU</th><th>Producto</th><th style="width:60px">Cant.</th><th style="width:92px">P. Unit.</th><th style="width:92px">Subtotal</th></tr>`;
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>Remito ${escapeHtml(p?.id||'')}</title>${estilosDocumento()}</head><body>
     <div class="no-print"><button class="print-btn" onclick="window.print()">Imprimir / Guardar PDF</button></div>
@@ -2882,13 +2910,13 @@ function documentoRemitoGenerico(p, lineas, completo=true){
       </div>
 
       <table>
-        <thead><tr><th style="width:80px">SKU</th><th>Producto</th><th style="width:60px">Cant.</th><th style="width:92px">P. Unit.</th><th style="width:92px">Subtotal</th></tr></thead>
+        <thead>${encabezadoTabla}</thead>
         <tbody>${rows}</tbody>
       </table>
 
       <table class="totales">
-        <tr><td>Subtotal</td><td class="num">${money(subtotal)}</td></tr>
-        ${descuento ? `<tr><td>Descuento</td><td class="num">-${money(descuento)}</td></tr>` : ''}
+        <tr><td>${tieneDescuento ? 'Subtotal lista' : 'Subtotal'}</td><td class="num">${money(subtotal)}</td></tr>
+        ${tieneDescuento ? `<tr><td>Descuento ${descuentoPorcentaje.toFixed(2).replace('.00','')}%</td><td class="num">-${money(descuento || (subtotal * descuentoPorcentaje / 100))}</td></tr>` : ''}
         ${ajuste ? `<tr><td>Ajuste</td><td class="num">${money(ajuste)}</td></tr>` : ''}
         <tr class="total-final"><td>Total</td><td class="num">${money(total)}</td></tr>
       </table>
