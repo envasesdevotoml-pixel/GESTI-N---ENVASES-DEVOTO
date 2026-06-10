@@ -616,6 +616,20 @@ function renderUsuarios(){
   cont.innerHTML = table(["Usuario","Nombre","Acceso"], APP_USERS.map(u=>[u.usuario,u.nombre,u.rol==='admin'?'Todo el sistema':'Solo preparación']));
 }
 
+
+function validarPasswordUsuarioActual(motivo){
+  if(!currentUser) return false;
+  const usuario = APP_USERS.find(u=>u.usuario === currentUser.usuario);
+  if(!usuario) return false;
+  const pass = prompt((motivo || "Para confirmar esta acción") + "\n\nIngresá la contraseña de " + currentUser.nombre + ":");
+  if(pass === null) return false;
+  if(pass !== usuario.password){
+    alert("Contraseña incorrecta. No se realizó la acción.");
+    return false;
+  }
+  return true;
+}
+
 const SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-1cWV4vv5RHwzD2FaPTZCKVS8KdJw4csZaYsqNt0OQtYb9Ef7qqwgCjvyG6WxGWz6RVzXPAP-ZwOK/pub?gid=805595643&single=true&output=csv";
 
 let productos = JSON.parse(localStorage.getItem("ed_productos") || "[]");
@@ -1151,8 +1165,37 @@ function renderPedidoTable(data){
     (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+"%" : "-"),
     (Number(p.ajuste_porcentaje||0) ? Number(p.ajuste_porcentaje||0)+"%" : "-"),
     money(p.total),
-    `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Preparación</button> <button class="btn secondary" onclick='editarPedido(${p.id})'>Editar</button> <button class="btn secondary" onclick='exportarPedidoExcel(${p.id})'>Excel</button>`
+    `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='exportarPedidoExcel(${JSON.stringify(p.id)})'>Excel</button> ${currentUser?.rol === "admin" ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ""}`
   ]));
+}
+
+
+async function eliminarPedidoConPassword(id){
+  if(currentUser?.rol !== "admin") return alert("Solo administradores pueden eliminar pedidos.");
+  const pedido = pedidos.find(p=>String(p.id)===String(id));
+  const etiqueta = pedido ? `#${pedido.id} - ${pedido.cliente || "Sin cliente"}` : `#${id}`;
+
+  if(!confirm(`Vas a eliminar el pedido ${etiqueta}.\n\nEsta acción no se puede deshacer. ¿Confirmás?`)) return;
+  if(!validarPasswordUsuarioActual(`Eliminar pedido ${etiqueta}`)) return;
+
+  try{
+    if(sb){
+      const det = await sb.from("detalle_pedidos").delete().eq("pedido_id", id);
+      if(det.error) throw det.error;
+
+      const ped = await sb.from("pedidos").delete().eq("id", id);
+      if(ped.error) throw ped.error;
+    }
+
+    pedidos = pedidos.filter(p=>String(p.id)!==String(id));
+    delete comisionesPagas[id];
+    localStorage.removeItem(`prep_checks_${id}`);
+    saveLocal();
+    renderAll();
+    alert(`Pedido ${etiqueta} eliminado por ${currentUser.nombre}.`);
+  }catch(e){
+    alert("No se pudo eliminar el pedido: " + (e.message || e));
+  }
 }
 
 async function actualizarEstadoPedido(id, estado){
@@ -1745,6 +1788,7 @@ function limpiarFiltrosComisiones(){
 async function borrarTodosLosPedidos(){
   if(currentUser?.rol !== "admin") return alert("Solo administradores pueden borrar pedidos.");
   if(!confirm("Esto borra TODOS los pedidos creados y sus detalles. Se mantienen clientes, vendedores y productos. ¿Confirmás?")) return;
+  if(!validarPasswordUsuarioActual("Borrar TODOS los pedidos")) return;
   if(!confirm("Última confirmación: ¿arrancar de cero con pedidos vacíos?")) return;
 
   try{
@@ -1762,7 +1806,7 @@ async function borrarTodosLosPedidos(){
     Object.keys(localStorage).filter(k=>k.startsWith("prep_checks_")).forEach(k=>localStorage.removeItem(k));
     saveLocal();
     renderAll();
-    alert("Listo. Pedidos borrados. Clientes y vendedores quedaron cargados.");
+    alert("Listo. Pedidos borrados por " + currentUser.nombre + ". Clientes y vendedores quedaron cargados.");
   }catch(e){
     alert("No se pudieron borrar todos los pedidos: " + (e.message || e));
   }
