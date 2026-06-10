@@ -1995,6 +1995,235 @@ function exportBackup(){
 function renderAll(){
   renderDashboard();renderPedidoActual();renderPedidos();renderPreparacion();renderProductos();renderClientes();renderVendedores();renderComisiones();renderUsuarios();aplicarPermisosUsuario();
 }
+
+
+/* ===== Ajustes finales: remito completo/simple + preparación limpia ===== */
+function estilosDocumento(){
+  return `
+    <style>
+      @page { size: A4 portrait; margin: 9mm; }
+      *{box-sizing:border-box}
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;background:white;font-size:11px;line-height:1.25}
+      .page{width:100%;max-width:760px;margin:0 auto;border:1.5px solid #d7d7d7;border-radius:14px;padding:12px;background:white}
+      .top{display:grid;grid-template-columns:1fr 170px;gap:10px;margin-bottom:8px;align-items:stretch}
+      .box{border:1.5px solid #d7d7d7;border-radius:12px;padding:9px;background:white}
+      .empresa{display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center}
+      .logo{max-width:125px;max-height:62px;object-fit:contain}
+      .row{display:grid;grid-template-columns:92px 1fr;gap:6px;margin:3px 0;break-inside:avoid}
+      .lbl{font-weight:800;color:#333}
+      .remito-title{font-size:28px;font-weight:900;letter-spacing:.8px;margin-bottom:6px;text-align:center}
+      .cliente{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+      table{width:100%;border-collapse:collapse;margin-top:8px;page-break-inside:auto}
+      tr{page-break-inside:avoid;page-break-after:auto}
+      th{background:#16b886;color:white;font-weight:900;padding:6px;border:1px solid #e5e5e5;text-align:left;font-size:10px}
+      td{padding:5px 6px;border:1px solid #e5e5e5;vertical-align:top;font-size:10px}
+      .num{text-align:right;white-space:nowrap}
+      .center{text-align:center}
+      .check{width:26px;text-align:center;font-size:16px;line-height:1}
+      .totales{width:280px;margin-left:auto;margin-top:10px}
+      .totales td{font-weight:800}
+      .total-final td{font-size:14px;background:#f7f7f7}
+      .firma{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:26px}
+      .firma2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:26px}
+      .linea{border-top:1px solid #333;padding-top:5px;text-align:center;min-height:26px}
+      .obs{border:1px solid #ddd;border-radius:10px;min-height:70px;padding:8px;margin-top:10px}
+      .nota{font-size:10px;color:#555;margin-top:8px}
+      .no-print{margin-bottom:10px;text-align:right}
+      .print-btn{border:0;background:#2094e6;color:#fff;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer}
+      @media print{ .no-print{display:none} body{-webkit-print-color-adjust:exact;print-color-adjust:exact} .page{border-radius:10px;border-color:#bbb} }
+    </style>`;
+}
+
+function logoSistema(){
+  return document.querySelector('.brand img')?.src || '';
+}
+
+function datosClienteHTML(c, p){
+  const partes = [
+    ['Cliente', c.nombre || p?.cliente || ''],
+    ['Teléfono', c.telefono || p?.telefono || ''],
+    ['Domicilio', c.direccion || c.domicilio || ''],
+    ['Localidad', c.localidad || ''],
+    ['Provincia', c.provincia || ''],
+    ['CP', c.codigo_postal || c.cp || ''],
+    ['CUIT', c.cuit || '']
+  ];
+  return partes.filter(x=>String(x[1]||'').trim()).map(([k,v])=>`<div class="row"><div class="lbl">${k}</div><div>${escapeHtml(v)}</div></div>`).join('') || `<div class="row"><div class="lbl">Cliente</div><div>${escapeHtml(p?.cliente||'')}</div></div>`;
+}
+
+function datosPedidoHTML(p){
+  return `
+    <div class="row"><div class="lbl">Nº</div><div>${escapeHtml(p?.id||'')}</div></div>
+    <div class="row"><div class="lbl">Fecha</div><div>${fechaAR(p?.fecha)}</div></div>
+    <div class="row"><div class="lbl">Entrega</div><div>${escapeHtml(p?.metodo_entrega || '')}</div></div>
+    <div class="row"><div class="lbl">Pago</div><div>${escapeHtml(p?.metodo_pago || '')}</div></div>
+  `;
+}
+
+function documentoRemitoGenerico(p, lineas, completo=true){
+  const c = clienteDePedido(p);
+  const subtotal = subtotalPedido(p);
+  const descuento = Number(p?.descuento_importe||0);
+  const ajuste = Number(p?.ajuste_importe||0);
+  const total = Number(p?.total || 0);
+  const rows = (lineas||[]).map(l=>`
+    <tr>
+      <td>${escapeHtml(l.sku||'')}</td>
+      <td>${escapeHtml(l.producto || l.nombre || '')}</td>
+      <td class="num">${escapeHtml(l.cantidad||'')}</td>
+      <td class="num">${money(l.precio_unitario || l.precio || 0)}</td>
+      <td class="num">${money(l.subtotal||0)}</td>
+    </tr>`).join('');
+
+  const empresa = completo ? `
+    <div class="box empresa">
+      <img class="logo" src="${logoSistema()}">
+      <div>
+        <div style="font-size:20px;font-weight:900">ENVASES DEVOTO</div>
+        <div><b>Dirección:</b> Pola 2241</div>
+        <div><b>CUIT:</b> 30-71826487-8</div>
+      </div>
+    </div>` : `
+    <div class="box">
+      <div style="font-size:22px;font-weight:900">REMITO</div>
+      <div class="nota">Documento no fiscal</div>
+    </div>`;
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Remito ${escapeHtml(p?.id||'')}</title>${estilosDocumento()}</head><body>
+    <div class="no-print"><button class="print-btn" onclick="window.print()">Imprimir / Guardar PDF</button></div>
+    <div class="page">
+      <div class="top">
+        ${empresa}
+        <div class="box">
+          <div class="remito-title">REMITO</div>
+          ${datosPedidoHTML(p)}
+        </div>
+      </div>
+
+      <div class="box" style="margin-bottom:8px">
+        <div style="font-weight:900;font-size:14px;margin-bottom:4px">Datos del cliente</div>
+        <div class="cliente">${datosClienteHTML(c,p)}</div>
+      </div>
+
+      <table>
+        <thead><tr><th style="width:80px">SKU</th><th>Producto</th><th style="width:60px">Cant.</th><th style="width:92px">P. Unit.</th><th style="width:92px">Subtotal</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+
+      <table class="totales">
+        <tr><td>Subtotal</td><td class="num">${money(subtotal)}</td></tr>
+        ${descuento ? `<tr><td>Descuento</td><td class="num">-${money(descuento)}</td></tr>` : ''}
+        ${ajuste ? `<tr><td>Ajuste</td><td class="num">${money(ajuste)}</td></tr>` : ''}
+        <tr class="total-final"><td>Total</td><td class="num">${money(total)}</td></tr>
+      </table>
+
+      <div class="firma">
+        <div class="linea">Recibió conforme</div>
+        <div class="linea">Aclaración</div>
+        <div class="linea">DNI</div>
+      </div>
+    </div>
+  </body></html>`;
+}
+
+function documentoRemito(p, lineas){ return documentoRemitoGenerico(p, lineas, true); }
+function documentoRemitoSimple(p, lineas){ return documentoRemitoGenerico(p, lineas, false); }
+
+function documentoPreparacion(p, lineas){
+  const c = clienteDePedido(p);
+  const rows = (lineas||[]).map(l=>`
+    <tr>
+      <td class="check">☐</td>
+      <td>${escapeHtml(l.sku||'')}</td>
+      <td>${escapeHtml(l.producto || l.nombre || '')}</td>
+      <td class="num">${escapeHtml(l.cantidad||'')}</td>
+    </tr>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Preparación ${escapeHtml(p?.id||'')}</title>${estilosDocumento()}</head><body>
+    <div class="no-print"><button class="print-btn" onclick="window.print()">Imprimir / Guardar PDF</button></div>
+    <div class="page">
+      <div class="top" style="grid-template-columns:1fr 190px">
+        <div class="box">
+          <div style="font-size:24px;font-weight:900">HOJA DE PREPARACIÓN</div>
+          <div class="row"><div class="lbl">Cliente</div><div>${escapeHtml(c.nombre || p?.cliente || '')}</div></div>
+          ${p?.observaciones ? `<div class="row"><div class="lbl">Obs.</div><div>${escapeHtml(p.observaciones)}</div></div>` : ''}
+        </div>
+        <div class="box">
+          <div class="row"><div class="lbl">Pedido Nº</div><div>${escapeHtml(p?.id||'')}</div></div>
+          <div class="row"><div class="lbl">Fecha</div><div>${fechaAR(p?.fecha)}</div></div>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th style="width:32px">✓</th><th style="width:85px">SKU</th><th>Producto</th><th style="width:70px">Cant.</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="firma2">
+        <div class="linea">Preparado por</div>
+        <div class="linea">Fecha</div>
+      </div>
+      <div class="obs"><b>Observaciones de preparación:</b></div>
+    </div>
+  </body></html>`;
+}
+
+async function descargarPreparacionLimpia(id){
+  const pedido = pedidos.find(p=>String(p.id)===String(id));
+  const lineas = await obtenerLineasPedido(id);
+  abrirDocumentoImprimible('Preparación', documentoPreparacion(pedido, lineas));
+}
+
+function descargarPreparacion(p){
+  abrirDocumentoImprimible('Preparación', documentoPreparacion(p, p.lineas || []));
+}
+
+async function exportarPedidoExcel(id){
+  const pedido = pedidos.find(p=>String(p.id)===String(id));
+  const lineas = await obtenerLineasPedido(id);
+  abrirDocumentoImprimible('Remito completo', documentoRemito(pedido, lineas));
+}
+
+async function exportarPedidoSimple(id){
+  const pedido = pedidos.find(p=>String(p.id)===String(id));
+  const lineas = await obtenerLineasPedido(id);
+  abrirDocumentoImprimible('Remito simple', documentoRemitoSimple(pedido, lineas));
+}
+
+function renderPedidoTable(data){
+  return table(['Fecha','Cliente','Vendedor','Usuario','Estado','Subtotal','Desc.','Ajuste','Total',''],data.map(p=>[
+    new Date(p.fecha).toLocaleDateString('es-AR'),
+    p.cliente||'',
+    p.vendedor||'',
+    p.usuario_nombre || '-',
+    selectEstadoHTML(p.id, p.estado),
+    money(subtotalPedido(p)),
+    (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+'%' : '-'),
+    (Number(p.ajuste_porcentaje||0) ? Number(p.ajuste_porcentaje||0)+'%' : '-'),
+    money(p.total),
+    `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='exportarPedidoExcel(${JSON.stringify(p.id)})'>Remito completo</button> <button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> ${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}`
+  ]));
+}
+
+async function verPreparacion(id){
+  if(!sb) return alert('Supabase no está conectado.');
+  const pedido = pedidos.find(p=>String(p.id)===String(id));
+  const lineas = await obtenerLineasPedido(id);
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('preparacion').classList.add('active');
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
+  const chip = document.getElementById('modeChip');
+  if(chip) chip.innerText = 'Administración';
+  document.getElementById('tablaPreparacion').innerHTML = `
+    <div class="card">
+      <h2>Pedido #${id}</h2>
+      <p><b>Cliente:</b> ${pedido ? pedido.cliente : ''}</p>
+      <p><b>Estado:</b> ${pedido ? pedido.estado : ''}</p>
+      <button class="btn secondary" onclick="descargarPreparacionLimpia(${JSON.stringify(id)})">Imprimir preparación</button>
+      <button class="btn secondary" onclick="exportarPedidoExcel(${JSON.stringify(id)})">Remito completo</button>
+      <button class="btn secondary" onclick="exportarPedidoSimple(${JSON.stringify(id)})">Remito simple</button>
+    </div>
+    ${table(['Check','SKU','Producto','Cantidad'], lineas.map(l=>['☐', l.sku || '', l.producto || l.nombre || '', l.cantidad || '']))}
+  `;
+}
+
 init();
 </script>
 </body>
