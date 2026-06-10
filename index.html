@@ -579,7 +579,9 @@
           <code>alter table pedidos add column if not exists referido_id uuid;</code><br>
           <code>alter table pedidos add column if not exists porcentaje_comision_diferida numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists base_comision_diferida numeric default 0;</code><br>
-          <code>alter table pedidos add column if not exists comision_diferida_importe numeric default 0;</code>
+          <code>alter table pedidos add column if not exists comision_diferida_importe numeric default 0;</code><br>
+          <code>alter table productos add column if not exists comision_diferida boolean default false;</code><br>
+          <code>alter table detalle_pedidos add column if not exists comision_diferida boolean default false;</code>
         </div>
       </div>
     </section>
@@ -836,7 +838,14 @@ async function sincronizarProductos(){
 
     if(sb){
       const {error} = await sb.from("productos").upsert(unicos,{onConflict:"sku"});
-      if(error) throw error;
+      if(error){
+        // Si Supabase todavía no tiene la columna comision_diferida,
+        // sincronizamos igual los productos básicos para no cortar el sistema.
+        const basicos = unicos.map(({comision_diferida, ...rest}) => rest);
+        const {error:errorBasico} = await sb.from("productos").upsert(basicos,{onConflict:"sku"});
+        if(errorBasico) throw errorBasico;
+        console.warn("Productos sincronizados sin comision_diferida en Supabase. Agregá la columna productos.comision_diferida para guardarlo online.", error);
+      }
     }
     saveLocal();
     renderAll();
@@ -1069,14 +1078,24 @@ async function guardarPedido(){
       codigo_barras: l.codigo_barras || '',
       cantidad: l.cantidad,
       precio_unitario: l.precio,
-      subtotal: l.subtotal
+      subtotal: l.subtotal,
+      comision_diferida: !!l.comision_diferida
     }));
 
-    const {error: errorDetalle} = await sb
+    let resDetalle = await sb
       .from("detalle_pedidos")
       .insert(detalles);
 
-    if(errorDetalle) return alert("Error guardando detalle: " + errorDetalle.message);
+    if(resDetalle.error){
+      // Compatibilidad: si Supabase todavía no tiene la columna comision_diferida
+      // en detalle_pedidos, guarda el pedido igual sin romper.
+      const detallesBasicos = detalles.map(({comision_diferida, ...rest}) => rest);
+      resDetalle = await sb
+        .from("detalle_pedidos")
+        .insert(detallesBasicos);
+    }
+
+    if(resDetalle.error) return alert("Error guardando detalle: " + resDetalle.error.message);
   }
 
   const pedido={
