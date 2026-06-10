@@ -1035,67 +1035,64 @@ async function guardarPedido(){
       usuario_rol: currentUser ? currentUser.rol : ""
     };
 
-    const cabeceraBasica = {...cabecera};
-    delete cabeceraBasica.subtotal;
-    delete cabeceraBasica.descuento_porcentaje;
-    delete cabeceraBasica.descuento_importe;
-    delete cabeceraBasica.ajuste_porcentaje;
-    delete cabeceraBasica.ajuste_importe;
-    delete cabeceraBasica.base_comision;
-    delete cabeceraBasica.porcentaje_comision;
-    delete cabeceraBasica.referido_nombre;
-    delete cabeceraBasica.referido_id;
-    delete cabeceraBasica.porcentaje_comision_diferida;
-    delete cabeceraBasica.base_comision_diferida;
-    delete cabeceraBasica.comision_diferida_importe;
-    delete cabeceraBasica.metodo_entrega;
-    delete cabeceraBasica.metodo_pago;
-    delete cabeceraBasica.usuario_nombre;
-    delete cabeceraBasica.usuario_rol;
+    // IMPORTANTE:
+    // Antes existía un "guardado básico" que, si Supabase rechazaba alguna columna,
+    // volvía a guardar el pedido PERO borrando referido_nombre / comisión diferida.
+    // Por eso el pedido se veía bien al crearlo, pero al abrirlo o ir a Comisiones
+    // el referido volvía a "Ninguno". Ahora el fallback conserva siempre la diferida.
+    const cabeceraConDiferida = {...cabecera};
+    delete cabeceraConDiferida.metodo_entrega;
+    delete cabeceraConDiferida.metodo_pago;
+    delete cabeceraConDiferida.usuario_nombre;
+    delete cabeceraConDiferida.usuario_rol;
 
-    if(pedidoEditandoId){
-      let resPedido = await sb
-        .from("pedidos")
-        .update(cabecera)
-        .eq("id", pedidoEditandoId)
-        .select()
-        .single();
-
-      if(resPedido.error){
-        resPedido = await sb
+    async function guardarCabeceraPedido(payload){
+      if(pedidoEditandoId){
+        return await sb
           .from("pedidos")
-          .update(cabeceraBasica)
+          .update(payload)
           .eq("id", pedidoEditandoId)
           .select()
           .single();
       }
+      return await sb
+        .from("pedidos")
+        .insert(payload)
+        .select()
+        .single();
+    }
 
-      if(resPedido.error) return alert("Error actualizando pedido: " + resPedido.error.message);
-      pedidoGuardado = resPedido.data;
+    let resPedido = await guardarCabeceraPedido(cabecera);
 
+    // Si falla por columnas accesorias no creadas, probamos sin entrega/pago/usuario,
+    // pero SIN borrar referido ni los importes de comisión diferida.
+    if(resPedido.error){
+      console.warn("Primer intento guardando pedido falló:", resPedido.error);
+      resPedido = await guardarCabeceraPedido(cabeceraConDiferida);
+    }
+
+    if(resPedido.error){
+      return alert(
+        "No se pudo guardar el pedido con comisión diferida.\n\n" +
+        "Revisá que en Supabase, tabla pedidos, existan estas columnas:\n" +
+        "- referido_nombre\n" +
+        "- referido_id\n" +
+        "- porcentaje_comision_diferida\n" +
+        "- base_comision_diferida\n" +
+        "- comision_diferida_importe\n\n" +
+        "Error técnico: " + resPedido.error.message
+      );
+    }
+
+    pedidoGuardado = resPedido.data;
+
+    if(pedidoEditandoId){
       const {error: errorDelete} = await sb
         .from("detalle_pedidos")
         .delete()
         .eq("pedido_id", pedidoEditandoId);
 
       if(errorDelete) return alert("Error borrando detalle anterior: " + errorDelete.message);
-    }else{
-      let resPedido = await sb
-        .from("pedidos")
-        .insert(cabecera)
-        .select()
-        .single();
-
-      if(resPedido.error){
-        resPedido = await sb
-          .from("pedidos")
-          .insert(cabeceraBasica)
-          .select()
-          .single();
-      }
-
-      if(resPedido.error) return alert("Error guardando pedido: " + resPedido.error.message);
-      pedidoGuardado = resPedido.data;
     }
 
     const detalles = pedidoActual.map(l=>({
