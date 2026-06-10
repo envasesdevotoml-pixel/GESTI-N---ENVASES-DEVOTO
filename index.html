@@ -508,12 +508,13 @@
           <select id="fComEstado" onchange="renderComisiones()">
             <option value="">Todas</option>
             <option value="Pendiente">Pendientes</option>
+            <option value="Parcial">Parciales</option>
             <option value="Pagada">Pagadas</option>
           </select>
           <button class="btn success" onclick="pagarComisionesFiltradas()">Marcar filtradas como pagadas</button>
           <button class="btn secondary" onclick="limpiarFiltrosComisiones()">Limpiar filtros</button>
         </div>
-        <div class="small">Las comisiones se calculan por pedido usando el % cargado en cada vendedor. Base comisión = Subtotal - Descuento. El ajuste % no suma comisión. Al marcarlas como pagadas bajan del pendiente.</div>
+        <div class="small">Las comisiones se calculan por pedido usando el % cargado en cada vendedor. Base comisión = Subtotal - Descuento. El ajuste % no suma comisión. Ahora se pueden registrar pagos parciales manuales: el sistema muestra comisión generada, pagado y saldo pendiente.</div>
       </div>
       <div class="grid">
         <div class="card"><div class="metric-title">Ventas filtradas</div><div class="metric-value" id="comVentasFiltradas">$0</div></div>
@@ -660,6 +661,7 @@ let vendedores = JSON.parse(localStorage.getItem("ed_vendedores") || "[]");
 let clientes = JSON.parse(localStorage.getItem("ed_clientes") || "[]");
 let pedidos = JSON.parse(localStorage.getItem("ed_pedidos") || "[]");
 let comisionesPagas = JSON.parse(localStorage.getItem("ed_comisiones_pagas") || "{}");
+let comisionesPagosManual = JSON.parse(localStorage.getItem("ed_comisiones_pagos_manual") || "{}");
 let pedidoActual = [];
 let pedidoEditandoId = null;
 let sb = null;
@@ -671,6 +673,7 @@ function saveLocal(){
   localStorage.setItem("ed_clientes",JSON.stringify(clientes));
   localStorage.setItem("ed_pedidos",JSON.stringify(pedidos));
   localStorage.setItem("ed_comisiones_pagas",JSON.stringify(comisionesPagas));
+  localStorage.setItem("ed_comisiones_pagos_manual",JSON.stringify(comisionesPagosManual));
 }
 function init(){
   cargarSesion();
@@ -687,6 +690,13 @@ function init(){
     setTimeout(()=>modoDeposito(), 700);
   }
 }
+function parseJsonSafe(value, fallback){
+  try{
+    if(Array.isArray(value) || (value && typeof value === "object")) return value;
+    return JSON.parse(value || "");
+  }catch(e){ return fallback; }
+}
+
 async function cargarDesdeSupabase(){
   if(!sb) return;
   try{
@@ -723,6 +733,8 @@ async function cargarDesdeSupabase(){
         porcentaje_comision:x.porcentaje_comision || 0,
         comision_estado:x.comision_estado || x.commission_status || "",
         comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || "",
+        comision_pagado_importe:Number(x.comision_pagado_importe || x.commission_paid_amount || 0),
+        comision_pagos:parseJsonSafe(x.comision_pagos || x.commission_payments || "[]", []),
         usuario_nombre:x.usuario_nombre || x.created_by || x.usuario || "",
         metodo_entrega:x.metodo_entrega || x.entrega || "",
         metodo_pago:x.metodo_pago || x.pago || ""
@@ -1764,13 +1776,35 @@ function porcentajeComisionPedido(p){
   return Number(v?.porcentaje_comision || p.porcentaje_comision || 0);
 }
 
-function estadoComisionPedido(p){
-  if(comisionesPagas[p.id]) return "Pagada";
-  if(p.comision_estado === "Pagada" || p.commission_status === "Pagada") return "Pagada";
+function pagosManualesComisionPedido(p){
+  const desdeLocal = comisionesPagosManual[p.id];
+  if(Array.isArray(desdeLocal)) return desdeLocal;
+  if(Array.isArray(p.comision_pagos)) return p.comision_pagos;
+  return [];
+}
+
+function totalPagadoComisionPedido(p, importeGenerado){
+  const pagos = pagosManualesComisionPedido(p);
+  const manual = pagos.reduce((a,x)=>a+Number(x.importe||0),0);
+  const campo = Number(p.comision_pagado_importe || p.commission_paid_amount || 0);
+  const totalManual = Math.max(manual, campo);
+  if(totalManual > 0) return Math.min(totalManual, Number(importeGenerado||0));
+  if(comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada") return Number(importeGenerado||0);
+  return 0;
+}
+
+function estadoComisionPedido(p, importeGenerado){
+  const importe = Number(importeGenerado||0);
+  const pagado = totalPagadoComisionPedido(p, importe);
+  if(importe > 0 && pagado >= importe) return "Pagada";
+  if(pagado > 0) return "Parcial";
+  if(comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada") return "Pagada";
   return "Pendiente";
 }
 
 function fechaPagoComisionPedido(p){
+  const pagos = pagosManualesComisionPedido(p);
+  if(pagos.length) return pagos[pagos.length-1].fecha || "";
   return comisionesPagas[p.id]?.fecha || p.comision_pagada_fecha || p.commission_paid_at || "";
 }
 
@@ -1779,6 +1813,8 @@ function calcComisionesDetalle(){
     const pct = porcentajeComisionPedido(p);
     const base = baseComisionPedido(p);
     const importe = base * pct / 100;
+    const pagado = totalPagadoComisionPedido(p, importe);
+    const saldo = Math.max(0, importe - pagado);
     return {
       pedido_id:p.id,
       fecha:p.fecha,
@@ -1791,7 +1827,9 @@ function calcComisionesDetalle(){
       base,
       pct,
       importe,
-      estado:estadoComisionPedido(p),
+      pagado,
+      saldo,
+      estado:estadoComisionPedido(p, importe),
       fecha_pago:fechaPagoComisionPedido(p)
     };
   });
@@ -1807,8 +1845,8 @@ function calcComisiones(){
     resumen[key].base += c.base;
     resumen[key].pct = c.pct;
     resumen[key].importe += c.importe;
-    if(c.estado==="Pagada") resumen[key].pagado += c.importe;
-    else resumen[key].pendiente += c.importe;
+    resumen[key].pagado += c.pagado;
+    resumen[key].pendiente += c.saldo;
   });
   return Object.values(resumen);
 }
@@ -1839,8 +1877,8 @@ function renderComisiones(){
   const detalle = comisionesFiltradas();
   const ventas = detalle.reduce((a,c)=>a+c.total,0);
   const generada = detalle.reduce((a,c)=>a+c.importe,0);
-  const pagada = detalle.filter(c=>c.estado==="Pagada").reduce((a,c)=>a+c.importe,0);
-  const pendiente = detalle.filter(c=>c.estado==="Pendiente").reduce((a,c)=>a+c.importe,0);
+  const pagada = detalle.reduce((a,c)=>a+c.pagado,0);
+  const pendiente = detalle.reduce((a,c)=>a+c.saldo,0);
 
   const setText = (id,val)=>{ const el=document.getElementById(id); if(el) el.innerText=money(val); };
   setText("comVentasFiltradas", ventas);
@@ -1856,8 +1894,8 @@ function renderComisiones(){
     resumen[key].total += c.total;
     resumen[key].base += c.base;
     resumen[key].importe += c.importe;
-    if(c.estado==="Pagada") resumen[key].pagado += c.importe;
-    else resumen[key].pendiente += c.importe;
+    resumen[key].pagado += c.pagado;
+    resumen[key].pendiente += c.saldo;
   });
 
   const resumenRows = Object.values(resumen).map(r=>[
@@ -1875,7 +1913,7 @@ function renderComisiones(){
   }
 
   document.getElementById("tablaComisiones").innerHTML=table(
-    ["Fecha","Pedido","Cliente","Vendedor","Total final","Base comisión","%","Comisión","Estado","Fecha pago","Acción"],
+    ["Fecha","Pedido","Cliente","Vendedor","Total final","Base comisión","%","Comisión","Pagado","Saldo","Estado","Último pago","Acción"],
     detalle.map(c=>[
       c.fecha ? new Date(c.fecha).toLocaleDateString("es-AR") : "",
       "#"+c.pedido_id,
@@ -1885,18 +1923,25 @@ function renderComisiones(){
       money(c.base),
       c.pct+"%",
       money(c.importe),
-      c.estado==="Pagada" ? '<span class="badge green">Pagada</span>' : '<span class="badge yellow">Pendiente</span>',
+      `<span class="badge green">${money(c.pagado)}</span>`,
+      `<span class="badge yellow">${money(c.saldo)}</span>`,
+      c.estado==="Pagada" ? '<span class="badge green">Pagada</span>' : (c.estado==="Parcial" ? '<span class="badge purple">Parcial</span>' : '<span class="badge yellow">Pendiente</span>'),
       c.fecha_pago ? new Date(c.fecha_pago).toLocaleString("es-AR") : "-",
-      c.estado==="Pagada"
-        ? `<button class="btn secondary" onclick="marcarComisionPendiente(${JSON.stringify(c.pedido_id)})">Volver pendiente</button>`
-        : `<button class="btn success" onclick="marcarComisionPagada(${JSON.stringify(c.pedido_id)})">Marcar pagada</button>`
+      `<div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn success" onclick="registrarPagoComisionManual(${JSON.stringify(c.pedido_id)})">Registrar pago</button>
+        <button class="btn secondary" onclick="marcarComisionPagada(${JSON.stringify(c.pedido_id)})">Pagar saldo</button>
+        <button class="btn secondary" onclick="verPagosComision(${JSON.stringify(c.pedido_id)})">Ver pagos</button>
+        ${c.pagado>0 || c.estado==="Pagada" ? `<button class="btn danger" onclick="marcarComisionPendiente(${JSON.stringify(c.pedido_id)})">Reset</button>` : ""}
+      </div>`
     ])
   );
 }
 
-async function guardarEstadoComisionSupabase(pedidoId, estado, fecha){
+async function guardarEstadoComisionSupabase(pedidoId, estado, fecha, pagadoImporte, pagos){
   if(!sb) return;
   const camposPosibles = [
+    {comision_estado:estado, comision_pagada_fecha:fecha, comision_pagado_importe:pagadoImporte, comision_pagos:JSON.stringify(pagos||[])},
+    {commission_status:estado, commission_paid_at:fecha, commission_paid_amount:pagadoImporte, commission_payments:JSON.stringify(pagos||[])},
     {comision_estado:estado, comision_pagada_fecha:fecha},
     {commission_status:estado, commission_paid_at:fecha}
   ];
@@ -1908,44 +1953,95 @@ async function guardarEstadoComisionSupabase(pedidoId, estado, fecha){
 }
 
 async function marcarComisionPagada(pedidoId){
-  const fecha = new Date().toISOString();
-  comisionesPagas[pedidoId] = {estado:"Pagada", fecha};
   const pedido = pedidos.find(p=>p.id==pedidoId);
-  if(pedido){
-    pedido.comision_estado = "Pagada";
-    pedido.comision_pagada_fecha = fecha;
-  }
-  saveLocal();
-  await guardarEstadoComisionSupabase(pedidoId, "Pagada", fecha);
-  renderAll();
+  if(!pedido) return;
+  const detalle = calcComisionesDetalle().find(c=>c.pedido_id==pedidoId);
+  const saldo = Number(detalle?.saldo || 0);
+  if(saldo <= 0) return alert("Esta comisión ya está pagada.");
+  await agregarPagoComision(pedidoId, saldo, "Pago de saldo / comisión completa");
 }
 
 async function marcarComisionPendiente(pedidoId){
+  if(!confirm("Esto borra los pagos registrados de esta comisión y la deja pendiente. ¿Confirmás?")) return;
   delete comisionesPagas[pedidoId];
+  delete comisionesPagosManual[pedidoId];
   const pedido = pedidos.find(p=>p.id==pedidoId);
   if(pedido){
     pedido.comision_estado = "Pendiente";
     pedido.comision_pagada_fecha = "";
+    pedido.comision_pagado_importe = 0;
+    pedido.comision_pagos = [];
   }
   saveLocal();
-  await guardarEstadoComisionSupabase(pedidoId, "Pendiente", null);
+  await guardarEstadoComisionSupabase(pedidoId, "Pendiente", null, 0, []);
   renderAll();
 }
 
+async function agregarPagoComision(pedidoId, importe, nota){
+  const pedido = pedidos.find(p=>p.id==pedidoId);
+  if(!pedido) return;
+  const detalle = calcComisionesDetalle().find(c=>c.pedido_id==pedidoId);
+  const generado = Number(detalle?.importe || 0);
+  const saldoActual = Number(detalle?.saldo || generado);
+  const monto = Math.min(Number(importe||0), saldoActual);
+  if(!monto || monto <= 0) return alert("Importe inválido.");
+
+  const fecha = new Date().toISOString();
+  const pago = {
+    fecha,
+    importe:monto,
+    nota: nota || "",
+    usuario: currentUser?.nombre || ""
+  };
+
+  const pagos = pagosManualesComisionPedido(pedido).concat([pago]);
+  const pagado = pagos.reduce((a,x)=>a+Number(x.importe||0),0);
+  const estado = pagado >= generado ? "Pagada" : "Parcial";
+
+  comisionesPagosManual[pedidoId] = pagos;
+  if(estado === "Pagada") comisionesPagas[pedidoId] = {estado:"Pagada", fecha};
+  else delete comisionesPagas[pedidoId];
+
+  pedido.comision_estado = estado;
+  pedido.comision_pagada_fecha = fecha;
+  pedido.comision_pagado_importe = Math.min(pagado, generado);
+  pedido.comision_pagos = pagos;
+
+  saveLocal();
+  await guardarEstadoComisionSupabase(pedidoId, estado, fecha, pedido.comision_pagado_importe, pagos);
+  renderAll();
+}
+
+async function registrarPagoComisionManual(pedidoId){
+  const detalle = calcComisionesDetalle().find(c=>c.pedido_id==pedidoId);
+  if(!detalle) return;
+  if(detalle.saldo <= 0) return alert("Esta comisión ya está pagada.");
+
+  const valor = prompt(`Comisión de ${detalle.vendedor}\nGenerada: ${money(detalle.importe)}\nPagado: ${money(detalle.pagado)}\nSaldo: ${money(detalle.saldo)}\n\nIngrese importe a pagar:`);
+  if(valor === null) return;
+  const importe = Number(String(valor).replace(/\./g,"").replace(",",".").replace(/[^0-9.]/g,""));
+  if(!importe || importe <= 0) return alert("Importe inválido.");
+  if(importe > detalle.saldo && !confirm(`El importe supera el saldo. Se registrará solo ${money(detalle.saldo)}. ¿Continuar?`)) return;
+
+  const nota = prompt("Observación opcional del pago:", "") || "";
+  await agregarPagoComision(pedidoId, importe, nota);
+}
+
+function verPagosComision(pedidoId){
+  const pedido = pedidos.find(p=>p.id==pedidoId);
+  if(!pedido) return;
+  const pagos = pagosManualesComisionPedido(pedido);
+  if(!pagos.length) return alert("No hay pagos parciales registrados para esta comisión.");
+  alert(pagos.map((p,i)=>`${i+1}) ${p.fecha ? new Date(p.fecha).toLocaleString("es-AR") : ""} - ${money(p.importe)}${p.usuario ? " - " + p.usuario : ""}${p.nota ? "\n   " + p.nota : ""}`).join("\n\n"));
+}
+
 async function pagarComisionesFiltradas(){
-  const pendientes = comisionesFiltradas().filter(c=>c.estado==="Pendiente");
-  if(!pendientes.length) return alert("No hay comisiones pendientes con esos filtros.");
-  if(!confirm(`Marcar ${pendientes.length} comisión/es como pagadas?`)) return;
+  const pendientes = comisionesFiltradas().filter(c=>c.saldo > 0);
+  if(!pendientes.length) return alert("No hay saldo pendiente con esos filtros.");
+  if(!confirm(`Pagar el saldo de ${pendientes.length} comisión/es filtradas?`)) return;
 
   for(const c of pendientes){
-    const fecha = new Date().toISOString();
-    comisionesPagas[c.pedido_id] = {estado:"Pagada", fecha};
-    const pedido = pedidos.find(p=>p.id==c.pedido_id);
-    if(pedido){
-      pedido.comision_estado = "Pagada";
-      pedido.comision_pagada_fecha = fecha;
-    }
-    await guardarEstadoComisionSupabase(c.pedido_id, "Pagada", fecha);
+    await agregarPagoComision(c.pedido_id, c.saldo, "Pago masivo de saldo filtrado");
   }
   saveLocal();
   renderAll();
@@ -1978,8 +2074,10 @@ async function borrarTodosLosPedidos(){
     pedidos = [];
     pedidoActual = [];
     comisionesPagas = {};
+    comisionesPagosManual = {};
     localStorage.setItem("ed_pedidos", "[]");
     localStorage.setItem("ed_comisiones_pagas", "{}");
+    localStorage.setItem("ed_comisiones_pagos_manual", "{}");
     Object.keys(localStorage).filter(k=>k.startsWith("prep_checks_")).forEach(k=>localStorage.removeItem(k));
     saveLocal();
     renderAll();
@@ -1990,7 +2088,7 @@ async function borrarTodosLosPedidos(){
 }
 
 function exportBackup(){
-  download("backup_gestion_envases_devoto.json",JSON.stringify({productos,vendedores,clientes,pedidos,comisionesPagas},null,2));
+  download("backup_gestion_envases_devoto.json",JSON.stringify({productos,vendedores,clientes,pedidos,comisionesPagas,comisionesPagosManual},null,2));
 }
 function renderAll(){
   renderDashboard();renderPedidoActual();renderPedidos();renderPreparacion();renderProductos();renderClientes();renderVendedores();renderComisiones();renderUsuarios();aplicarPermisosUsuario();
