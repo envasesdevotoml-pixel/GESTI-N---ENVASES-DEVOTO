@@ -406,7 +406,8 @@
         <textarea id="pObservaciones" placeholder="Observaciones del pedido"></textarea>
         <h2 style="margin-top:18px">Agregar producto</h2>
         <div class="quick-box">
-          <input id="quickProduct" placeholder="SKU, código de barras o nombre del producto">
+          <input id="quickProduct" list="productosSugeridos" placeholder="SKU, código de barras o nombre del producto" oninput="actualizarSugerenciasProductos()" onkeydown="if(event.key==='Enter') addQuickProduct()">
+          <datalist id="productosSugeridos"></datalist>
           <input id="quickQty" type="number" min="1" value="1" placeholder="Cantidad" onkeydown="if(event.key==='Enter') addQuickProduct()">
           <button class="btn" onclick="addQuickProduct()">Agregar</button>
         </div>
@@ -922,11 +923,19 @@ async function sincronizarProductos(){
   }catch(e){alert("No se pudo sincronizar. Revisá Google Sheets o Supabase."); console.error(e)}
 }
 function findProduct(q){
-  q=String(q||'').trim().toLowerCase();
-  return productos.find(p=>String(p.sku).toLowerCase()==q || String(p.codigo_barras).toLowerCase()==q) ||
-         productos.find(p=>String(p.nombre).toLowerCase().includes(q));
-}
-function addQuickProduct(){
+  const original = String(q||'').trim();
+  const norm = normalizarBusqueda(original);
+  if(!norm) return null;
+
+  // Si viene del autocompletado: "SKU - Nombre", prioriza el SKU antes del guion.
+  const skuElegido = original.split(" - ")[0].trim();
+  const skuNorm = normalizarBusqueda(skuElegido);
+
+  return productos.find(p=>normalizarBusqueda(p.sku) === skuNorm || normalizarBusqueda(p.codigo_barras) === skuNorm) ||
+         productos.find(p=>normalizarBusqueda(p.sku) === norm || normalizarBusqueda(p.codigo_barras) === norm) ||
+         productos.find(p=>normalizarBusqueda(`${p.sku || ''} - ${p.nombre || ''}`) === norm) ||
+         productos.find(p=>normalizarBusqueda(p.nombre).includes(norm) || normalizarBusqueda(p.sku).includes(norm) || normalizarBusqueda(p.codigo_barras).includes(norm));
+}function addQuickProduct(){
   const q=document.getElementById("quickProduct").value;
   const qty=Number(document.getElementById("quickQty").value||1);
   const p=findProduct(q);
@@ -1943,12 +1952,49 @@ async function eliminarCliente(id){
   saveLocal(); renderAll();
 }
 
-function autocompletarCliente(){
-  const lista = document.getElementById("clientesSugeridos");
-  if(lista){
-    lista.innerHTML = clientes.map(c=>`<option value="${escapeHtml(c.nombre)}">${escapeHtml(c.telefono||'')}${Number(c.descuento_fijo||0) ? ' · '+Number(c.descuento_fijo||0)+'% desc.' : ''}</option>`).join('');
-  }
+function normalizarBusqueda(txt){
+  return String(txt || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
 
+function actualizarSugerenciasClientes(){
+  const lista = document.getElementById("clientesSugeridos");
+  if(!lista) return;
+  const q = normalizarBusqueda(document.getElementById("pCliente")?.value || "");
+  const resultados = clientes
+    .filter(c=>{
+      const texto = normalizarBusqueda([c.nombre, c.telefono, c.direccion, c.localidad, c.cuit].filter(Boolean).join(" "));
+      return !q || texto.includes(q);
+    })
+    .slice(0, 25);
+  lista.innerHTML = resultados.map(c=>{
+    const extra = [c.telefono, c.direccion, Number(c.descuento_fijo||0) ? Number(c.descuento_fijo||0)+"% desc." : ""].filter(Boolean).join(" · ");
+    return `<option value="${escapeHtml(c.nombre||'')}">${escapeHtml(extra)}</option>`;
+  }).join('');
+}
+
+function actualizarSugerenciasProductos(){
+  const lista = document.getElementById("productosSugeridos");
+  if(!lista) return;
+  const q = normalizarBusqueda(document.getElementById("quickProduct")?.value || "");
+  const resultados = productos
+    .filter(p=>{
+      const texto = normalizarBusqueda([p.sku, p.codigo_barras, p.nombre].filter(Boolean).join(" "));
+      return !q || texto.includes(q);
+    })
+    .slice(0, 30);
+  lista.innerHTML = resultados.map(p=>{
+    const value = `${p.sku || ''} - ${p.nombre || ''}`.trim();
+    const extra = [p.codigo_barras, money(p.precio||0), p.comision_diferida ? 'Diferida SI' : ''].filter(Boolean).join(' · ');
+    return `<option value="${escapeHtml(value)}">${escapeHtml(extra)}</option>`;
+  }).join('');
+}
+
+function autocompletarCliente(){
+  actualizarSugerenciasClientes();
   const nombre = document.getElementById("pCliente").value.trim().toLowerCase();
   const encontrado = clientes.find(c=>String(c.nombre||'').toLowerCase()===nombre);
   if(encontrado){
@@ -1961,7 +2007,6 @@ function autocompletarCliente(){
     renderPedidoActual();
   }
 }
-
 async function verHistorialCliente(clienteId){
   const cliente = clientes.find(c=>c.id==clienteId);
   if(!cliente) return alert("No encontré el cliente.");
@@ -2769,7 +2814,7 @@ async function verificarSupabase(){
   `;
 }
 function renderAll(){
-  renderDashboard();renderPedidoActual();renderPedidos();renderPreparacion();renderProductos();renderClientes();renderVendedores();renderComisiones();renderUsuarios();aplicarPermisosUsuario();
+  actualizarSugerenciasClientes();actualizarSugerenciasProductos();renderDashboard();renderPedidoActual();renderPedidos();renderPreparacion();renderProductos();renderClientes();renderVendedores();renderComisiones();renderUsuarios();aplicarPermisosUsuario();
 }
 
 
