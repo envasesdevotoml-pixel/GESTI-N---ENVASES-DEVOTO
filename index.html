@@ -124,6 +124,14 @@
     .badge.red{background:#ffe8e8;color:var(--red)}
     .badge.purple{background:#f3e8ff;color:#6b21a8}
     .commission-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+    .commercial-box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:14px}
+    .commercial-grid{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr));gap:12px;align-items:end}
+    .commercial-grid label{display:block;font-size:12px;font-weight:900;color:#555;margin-bottom:6px}
+    .commercial-summary{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:12px;font-size:15px}
+    .commercial-summary div:nth-child(even){font-weight:900;text-align:right}
+    .commercial-summary .negative{color:var(--red)}
+    .commercial-summary .positive{color:var(--green)}
+    .commercial-summary .final-label,.commercial-summary .final-value{border-top:1px solid var(--line);padding-top:10px;font-size:20px;font-weight:900}
     .empty{text-align:center;color:var(--muted);padding:26px}
     .small{font-size:12px;color:var(--muted)}
     .warning{background:#fff3cd;border:1px solid #ffe69c;border-radius:10px;padding:12px;margin-bottom:14px}
@@ -216,7 +224,7 @@
       .nav{display:flex;gap:8px}
       .nav button{white-space:nowrap}
       .grid{grid-template-columns:1fr 1fr}
-      .pedido-head,.quick-box,.two{grid-template-columns:1fr}
+      .pedido-head,.quick-box,.two,.commercial-grid{grid-template-columns:1fr}
     }
   </style>
 </head>
@@ -295,7 +303,48 @@
           </thead>
           <tbody id="pedidoLineas"></tbody>
         </table>
-        <div class="total-row"><span>Total</span><span id="pedidoTotal">$0</span></div>
+        <div class="commercial-box">
+          <h2>Totales del pedido</h2>
+          <div class="commercial-grid">
+            <div>
+              <label>Descuento %</label>
+              <select id="pDescuentoPreset" onchange="aplicarDescuentoPreset()">
+                <option value="0">0%</option>
+                <option value="5">5%</option>
+                <option value="10">10%</option>
+                <option value="15">15%</option>
+                <option value="20">20%</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div>
+              <label>Descuento manual</label>
+              <input id="pDescuento" type="number" min="0" step="0.01" value="0" oninput="renderPedidoActual()" placeholder="Ej: 7.5">
+            </div>
+            <div>
+              <label>Ajuste %</label>
+              <select id="pAjustePreset" onchange="aplicarAjustePreset()">
+                <option value="0">0%</option>
+                <option value="4">4%</option>
+                <option value="10.5">10,5%</option>
+                <option value="21">21%</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div>
+              <label>Ajuste manual</label>
+              <input id="pAjuste" type="number" min="0" step="0.01" value="0" oninput="renderPedidoActual()" placeholder="Ej: 12.5">
+            </div>
+          </div>
+          <div class="commercial-summary">
+            <div>Subtotal productos</div><div id="pedidoSubtotal">$0</div>
+            <div>Descuento</div><div id="pedidoDescuentoImporte" class="negative">-$0</div>
+            <div>Base comisión</div><div id="pedidoBaseComision">$0</div>
+            <div>Ajuste</div><div id="pedidoAjusteImporte" class="positive">+$0</div>
+            <div class="final-label">Total final</div><div id="pedidoTotal" class="final-value">$0</div>
+          </div>
+          <div class="small" style="margin-top:10px">La comisión del vendedor se calcula sobre la base después del descuento, sin contar el ajuste.</div>
+        </div>
         <div class="toolbar" style="margin-top:16px">
           <button id="btnGuardarPedido" class="btn success" onclick="guardarPedido()">Guardar pedido</button>
           <button class="btn secondary" onclick="descargarPreparacionActual()">Descargar preparación sin precios</button>
@@ -401,7 +450,13 @@
         <div class="warning" style="margin-top:14px">
           <b>Opcional para Supabase:</b> si querés que el pago de comisiones quede guardado también en la nube, agregá estas columnas en la tabla <b>pedidos</b>:<br><br>
           <code>alter table pedidos add column if not exists comision_estado text default 'Pendiente';</code><br>
-          <code>alter table pedidos add column if not exists comision_pagada_fecha timestamptz;</code>
+          <code>alter table pedidos add column if not exists comision_pagada_fecha timestamptz;</code><br>
+          <code>alter table pedidos add column if not exists subtotal numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists descuento_porcentaje numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists descuento_importe numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists ajuste_porcentaje numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists ajuste_importe numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists base_comision numeric default 0;</code>
         </div>
       </div>
     </section>
@@ -470,6 +525,12 @@ async function cargarDesdeSupabase(){
         observaciones:x.observaciones || "",
         lineas:[],
         total:x.total,
+        subtotal:x.subtotal || x.total || 0,
+        descuento_porcentaje:x.descuento_porcentaje || 0,
+        descuento_importe:x.descuento_importe || 0,
+        ajuste_porcentaje:x.ajuste_porcentaje || 0,
+        ajuste_importe:x.ajuste_importe || 0,
+        base_comision:x.base_comision || x.subtotal || x.total || 0,
         comision_estado:x.comision_estado || x.commission_status || "",
         comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || ""
       }));
@@ -577,6 +638,28 @@ function updateQty(i,v){
   renderPedidoActual();
 }
 function removeLine(i){pedidoActual.splice(i,1);renderPedidoActual()}
+function aplicarDescuentoPreset(){
+  const sel = document.getElementById("pDescuentoPreset");
+  const inp = document.getElementById("pDescuento");
+  if(sel && inp && sel.value !== "manual") inp.value = sel.value;
+  renderPedidoActual();
+}
+function aplicarAjustePreset(){
+  const sel = document.getElementById("pAjustePreset");
+  const inp = document.getElementById("pAjuste");
+  if(sel && inp && sel.value !== "manual") inp.value = sel.value;
+  renderPedidoActual();
+}
+function recalcularTotalesPedido(){
+  const subtotal = pedidoActual.reduce((a,l)=>a+Number(l.subtotal||0),0);
+  const descuento_porcentaje = Math.max(0, Number(document.getElementById("pDescuento")?.value || 0));
+  const ajuste_porcentaje = Math.max(0, Number(document.getElementById("pAjuste")?.value || 0));
+  const descuento_importe = subtotal * descuento_porcentaje / 100;
+  const base_comision = Math.max(0, subtotal - descuento_importe);
+  const ajuste_importe = base_comision * ajuste_porcentaje / 100;
+  const total = base_comision + ajuste_importe;
+  return {subtotal, descuento_porcentaje, descuento_importe, base_comision, ajuste_porcentaje, ajuste_importe, total};
+}
 function renderPedidoActual(){
   const tbody=document.getElementById("pedidoLineas");
   tbody.innerHTML=pedidoActual.map((l,i)=>`<tr>
@@ -587,8 +670,15 @@ function renderPedidoActual(){
     <td>${money(l.subtotal)}</td>
     <td><button class="btn danger" onclick="removeLine(${i})">X</button></td>
   </tr>`).join('');
-  document.getElementById("pedidoTotal").innerText=money(pedidoActual.reduce((a,l)=>a+l.subtotal,0));
+  const t = recalcularTotalesPedido();
+  const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.innerText = val; };
+  set("pedidoSubtotal", money(t.subtotal));
+  set("pedidoDescuentoImporte", "-" + money(t.descuento_importe));
+  set("pedidoBaseComision", money(t.base_comision));
+  set("pedidoAjusteImporte", "+" + money(t.ajuste_importe));
+  set("pedidoTotal", money(t.total));
 }
+
 async function guardarPedido(){
   if(!pedidoActual.length) return alert("Agregá productos al pedido.");
 
@@ -629,7 +719,8 @@ async function guardarPedido(){
     }
   }
 
-  const total=pedidoActual.reduce((a,l)=>a+l.subtotal,0);
+  const totales = recalcularTotalesPedido();
+  const total = totales.total;
   let pedidoGuardado = null;
 
   if(sb){
@@ -641,19 +732,42 @@ async function guardarPedido(){
       vendedor_id: vendedor.id,
       estado: document.getElementById("pEstado").value,
       observaciones: document.getElementById("pObservaciones").value.trim(),
-      total: total
+      total: total,
+      subtotal: totales.subtotal,
+      descuento_porcentaje: totales.descuento_porcentaje,
+      descuento_importe: totales.descuento_importe,
+      ajuste_porcentaje: totales.ajuste_porcentaje,
+      ajuste_importe: totales.ajuste_importe,
+      base_comision: totales.base_comision
     };
 
+    const cabeceraBasica = {...cabecera};
+    delete cabeceraBasica.subtotal;
+    delete cabeceraBasica.descuento_porcentaje;
+    delete cabeceraBasica.descuento_importe;
+    delete cabeceraBasica.ajuste_porcentaje;
+    delete cabeceraBasica.ajuste_importe;
+    delete cabeceraBasica.base_comision;
+
     if(pedidoEditandoId){
-      const {data, error: errorPedido} = await sb
+      let resPedido = await sb
         .from("pedidos")
         .update(cabecera)
         .eq("id", pedidoEditandoId)
         .select()
         .single();
 
-      if(errorPedido) return alert("Error actualizando pedido: " + errorPedido.message);
-      pedidoGuardado = data;
+      if(resPedido.error){
+        resPedido = await sb
+          .from("pedidos")
+          .update(cabeceraBasica)
+          .eq("id", pedidoEditandoId)
+          .select()
+          .single();
+      }
+
+      if(resPedido.error) return alert("Error actualizando pedido: " + resPedido.error.message);
+      pedidoGuardado = resPedido.data;
 
       const {error: errorDelete} = await sb
         .from("detalle_pedidos")
@@ -662,14 +776,22 @@ async function guardarPedido(){
 
       if(errorDelete) return alert("Error borrando detalle anterior: " + errorDelete.message);
     }else{
-      const {data, error: errorPedido} = await sb
+      let resPedido = await sb
         .from("pedidos")
         .insert(cabecera)
         .select()
         .single();
 
-      if(errorPedido) return alert("Error guardando pedido: " + errorPedido.message);
-      pedidoGuardado = data;
+      if(resPedido.error){
+        resPedido = await sb
+          .from("pedidos")
+          .insert(cabeceraBasica)
+          .select()
+          .single();
+      }
+
+      if(resPedido.error) return alert("Error guardando pedido: " + resPedido.error.message);
+      pedidoGuardado = resPedido.data;
     }
 
     const detalles = pedidoActual.map(l=>({
@@ -701,6 +823,12 @@ async function guardarPedido(){
     estado:document.getElementById("pEstado").value,
     observaciones:document.getElementById("pObservaciones").value.trim(),
     lineas:[...pedidoActual],
+    subtotal:totales.subtotal,
+    descuento_porcentaje:totales.descuento_porcentaje,
+    descuento_importe:totales.descuento_importe,
+    ajuste_porcentaje:totales.ajuste_porcentaje,
+    ajuste_importe:totales.ajuste_importe,
+    base_comision:totales.base_comision,
     total:total,
     comision_estado: pedidoEditandoId && comisionesPagas[pedidoEditandoId] ? "Pagada" : "Pendiente",
     comision_pagada_fecha: pedidoEditandoId && comisionesPagas[pedidoEditandoId] ? comisionesPagas[pedidoEditandoId].fecha : ""
@@ -729,6 +857,10 @@ function limpiarPedido(){
   ["pCliente","pTelefono","pObservaciones","quickProduct"].forEach(id=>document.getElementById(id).value='');
   document.getElementById("quickQty").value=1;
   document.getElementById("pEstado").value="Pendiente";
+  const desc = document.getElementById("pDescuento"); if(desc) desc.value = 0;
+  const descPreset = document.getElementById("pDescuentoPreset"); if(descPreset) descPreset.value = "0";
+  const aj = document.getElementById("pAjuste"); if(aj) aj.value = 0;
+  const ajPreset = document.getElementById("pAjustePreset"); if(ajPreset) ajPreset.value = "0";
   const btn = document.getElementById("btnGuardarPedido");
   if(btn) btn.innerText = "Guardar pedido";
   const aviso = document.getElementById("avisoEdicionPedido");
@@ -808,6 +940,10 @@ async function editarPedido(id){
   document.getElementById("pTelefono").value = pedido.telefono || "";
   document.getElementById("pEstado").value = pedido.estado || "Pendiente";
   document.getElementById("pObservaciones").value = pedido.observaciones || "";
+  const desc = document.getElementById("pDescuento"); if(desc) desc.value = Number(pedido.descuento_porcentaje || 0);
+  const aj = document.getElementById("pAjuste"); if(aj) aj.value = Number(pedido.ajuste_porcentaje || 0);
+  const descPreset = document.getElementById("pDescuentoPreset"); if(descPreset) descPreset.value = ["0","5","10","15","20"].includes(String(pedido.descuento_porcentaje || 0)) ? String(pedido.descuento_porcentaje || 0) : "manual";
+  const ajPreset = document.getElementById("pAjustePreset"); if(ajPreset) ajPreset.value = ["0","4","10.5","21"].includes(String(pedido.ajuste_porcentaje || 0)) ? String(pedido.ajuste_porcentaje || 0) : "manual";
 
   const vendedorIndex = vendedores.findIndex(v=>v.id==pedido.vendedor_id || v.nombre==pedido.vendedor);
   document.getElementById("pVendedor").value = vendedorIndex >= 0 ? vendedorIndex : "";
@@ -832,11 +968,14 @@ async function editarPedido(id){
 }
 
 function renderPedidoTable(data){
-  return table(["Fecha","Cliente","Vendedor","Estado","Total",""],data.map(p=>[
+  return table(["Fecha","Cliente","Vendedor","Estado","Subtotal","Desc.","Ajuste","Total",""],data.map(p=>[
     new Date(p.fecha).toLocaleDateString("es-AR"),
     p.cliente||'',
     p.vendedor||'',
     selectEstadoHTML(p.id, p.estado),
+    money(subtotalPedido(p)),
+    (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+"%" : "-"),
+    (Number(p.ajuste_porcentaje||0) ? Number(p.ajuste_porcentaje||0)+"%" : "-"),
     money(p.total),
     `<button class="btn secondary" onclick='verPreparacion(${p.id})'>Preparación</button> <button class="btn secondary" onclick='editarPedido(${p.id})'>Editar</button> <button class="btn secondary" onclick='exportarPedidoExcel(${p.id})'>Excel</button>`
   ]));
@@ -894,7 +1033,10 @@ async function verPreparacion(id){
       <p><b>Teléfono:</b> ${pedido ? pedido.telefono : ""}</p>
       <p><b>Vendedor:</b> ${pedido ? pedido.vendedor : ""}</p>
       <p><b>Estado:</b> ${pedido ? pedido.estado : ""}</p>
-      <p><b>Total:</b> ${pedido ? money(pedido.total) : ""}</p>
+      <p><b>Subtotal:</b> ${pedido ? money(subtotalPedido(pedido)) : ""}</p>
+      <p><b>Descuento:</b> ${pedido ? (Number(pedido.descuento_porcentaje||0)+"% / "+money(pedido.descuento_importe||0)) : ""}</p>
+      <p><b>Ajuste:</b> ${pedido ? (Number(pedido.ajuste_porcentaje||0)+"% / "+money(pedido.ajuste_importe||0)) : ""}</p>
+      <p><b>Total final:</b> ${pedido ? money(pedido.total) : ""}</p>
       <button class="btn secondary" onclick="descargarPreparacionLimpia(${id})">Descargar hoja para depósito</button>
       <button class="btn secondary" onclick="exportarPedidoExcel(${id})">Excel administrativo</button>
     </div>
@@ -936,7 +1078,13 @@ async function exportarPedidoExcel(id){
     ["Teléfono", pedido ? pedido.telefono : ""],
     ["Vendedor", pedido ? pedido.vendedor : ""],
     ["Estado", pedido ? pedido.estado : ""],
-    ["Total", pedido ? pedido.total : ""],
+    ["Subtotal", pedido ? subtotalPedido(pedido) : ""],
+    ["Descuento %", pedido ? Number(pedido.descuento_porcentaje||0) : ""],
+    ["Descuento importe", pedido ? Number(pedido.descuento_importe||0) : ""],
+    ["Base comisión", pedido ? baseComisionPedido(pedido) : ""],
+    ["Ajuste %", pedido ? Number(pedido.ajuste_porcentaje||0) : ""],
+    ["Ajuste importe", pedido ? Number(pedido.ajuste_importe||0) : ""],
+    ["Total final", pedido ? pedido.total : ""],
     [],
     ["SKU","Producto","Código","Cantidad","Precio unitario","Subtotal"],
     ...lineas.map(l=>[
@@ -1156,6 +1304,12 @@ async function verHistorialCliente(clienteId){
         vendedor_id:x.vendedor_id,
         estado:x.estado,
         total:x.total,
+        subtotal:x.subtotal || x.total || 0,
+        descuento_porcentaje:x.descuento_porcentaje || 0,
+        descuento_importe:x.descuento_importe || 0,
+        ajuste_porcentaje:x.ajuste_porcentaje || 0,
+        ajuste_importe:x.ajuste_importe || 0,
+        base_comision:x.base_comision || x.subtotal || x.total || 0,
         comision_estado:x.comision_estado || x.commission_status || "",
         comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || ""
       }));
@@ -1189,6 +1343,17 @@ function renderVendedores(){
   document.getElementById("pVendedor").innerHTML='<option value="">Seleccionar vendedor</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
   document.getElementById("tablaVendedores").innerHTML=table(["Nombre","Teléfono","Comisión","Activo"],vendedores.map(v=>[v.nombre,v.telefono||'',(v.porcentaje_comision||0)+"%",v.activo!==false?"Sí":"No"]));
 }
+function subtotalPedido(p){
+  if(Number(p?.subtotal||0)) return Number(p.subtotal||0);
+  if(Array.isArray(p?.lineas) && p.lineas.length) return p.lineas.reduce((a,l)=>a+Number(l.subtotal||0),0);
+  return Number(p?.total||0);
+}
+function baseComisionPedido(p){
+  if(Number(p?.base_comision||0)) return Number(p.base_comision||0);
+  const sub = subtotalPedido(p);
+  const desc = Number(p?.descuento_importe||0) || (sub * Number(p?.descuento_porcentaje||0) / 100);
+  return Math.max(0, sub - desc);
+}
 function getVendedorDePedido(p){
   return vendedores.find(x=>x.id==p.vendedor_id || x.nombre==p.vendedor) || null;
 }
@@ -1211,7 +1376,8 @@ function fechaPagoComisionPedido(p){
 function calcComisionesDetalle(){
   return pedidos.map(p=>{
     const pct = porcentajeComisionPedido(p);
-    const importe = Number(p.total||0) * pct / 100;
+    const base = baseComisionPedido(p);
+    const importe = base * pct / 100;
     return {
       pedido_id:p.id,
       fecha:p.fecha,
@@ -1220,6 +1386,8 @@ function calcComisionesDetalle(){
       vendedor:p.vendedor || "Sin vendedor",
       vendedor_id:p.vendedor_id || "",
       total:Number(p.total||0),
+      subtotal:subtotalPedido(p),
+      base,
       pct,
       importe,
       estado:estadoComisionPedido(p),
@@ -1232,9 +1400,10 @@ function calcComisiones(){
   const resumen = {};
   calcComisionesDetalle().forEach(c=>{
     const key = c.vendedor_id || c.vendedor;
-    if(!resumen[key]) resumen[key]={vendedor:c.vendedor,vendedor_id:c.vendedor_id,pedidos:0,total:0,pct:c.pct,importe:0,pagado:0,pendiente:0};
+    if(!resumen[key]) resumen[key]={vendedor:c.vendedor,vendedor_id:c.vendedor_id,pedidos:0,total:0,base:0,pct:c.pct,importe:0,pagado:0,pendiente:0};
     resumen[key].pedidos += 1;
     resumen[key].total += c.total;
+    resumen[key].base += c.base;
     resumen[key].pct = c.pct;
     resumen[key].importe += c.importe;
     if(c.estado==="Pagada") resumen[key].pagado += c.importe;
@@ -1281,9 +1450,10 @@ function renderComisiones(){
   const resumen = {};
   detalle.forEach(c=>{
     const key = c.vendedor_id || c.vendedor;
-    if(!resumen[key]) resumen[key]={vendedor:c.vendedor,pedidos:0,total:0,importe:0,pagado:0,pendiente:0};
+    if(!resumen[key]) resumen[key]={vendedor:c.vendedor,pedidos:0,total:0,base:0,importe:0,pagado:0,pendiente:0};
     resumen[key].pedidos++;
     resumen[key].total += c.total;
+    resumen[key].base += c.base;
     resumen[key].importe += c.importe;
     if(c.estado==="Pagada") resumen[key].pagado += c.importe;
     else resumen[key].pendiente += c.importe;
@@ -1293,23 +1463,25 @@ function renderComisiones(){
     r.vendedor,
     r.pedidos,
     money(r.total),
+    money(r.base),
     money(r.importe),
     `<span class="badge green">${money(r.pagado)}</span>`,
     `<span class="badge yellow">${money(r.pendiente)}</span>`
   ]);
   const tablaResumen = document.getElementById("tablaResumenComisiones");
   if(tablaResumen){
-    tablaResumen.innerHTML = table(["Vendedor","Pedidos","Ventas","Comisión total","Pagado","Pendiente"], resumenRows);
+    tablaResumen.innerHTML = table(["Vendedor","Pedidos","Total final","Base comisión","Comisión total","Pagado","Pendiente"], resumenRows);
   }
 
   document.getElementById("tablaComisiones").innerHTML=table(
-    ["Fecha","Pedido","Cliente","Vendedor","Ventas","%","Comisión","Estado","Fecha pago","Acción"],
+    ["Fecha","Pedido","Cliente","Vendedor","Total final","Base comisión","%","Comisión","Estado","Fecha pago","Acción"],
     detalle.map(c=>[
       c.fecha ? new Date(c.fecha).toLocaleDateString("es-AR") : "",
       "#"+c.pedido_id,
       c.cliente,
       c.vendedor,
       money(c.total),
+      money(c.base),
       c.pct+"%",
       money(c.importe),
       c.estado==="Pagada" ? '<span class="badge green">Pagada</span>' : '<span class="badge yellow">Pendiente</span>',
