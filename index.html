@@ -372,6 +372,12 @@
             <option>Financiera</option>
           </select>
         </div>
+        <div class="pedido-extra-grid">
+          <select id="pReferido" onchange="renderPedidoActual()">
+            <option value="">Referido / comisión diferida: Ninguno</option>
+          </select>
+          <input id="pComisionDiferidaPct" type="number" min="0" step="0.01" value="5" oninput="renderPedidoActual()" placeholder="% comisión diferida">
+        </div>
         <textarea id="pObservaciones" placeholder="Observaciones del pedido"></textarea>
         <h2 style="margin-top:18px">Agregar producto</h2>
         <div class="quick-box">
@@ -387,6 +393,7 @@
               <th style="width:110px">Cantidad</th>
               <th style="width:130px">Precio</th>
               <th style="width:130px">Subtotal</th>
+              <th style="width:100px">Diferida</th>
               <th style="width:80px"></th>
             </tr>
           </thead>
@@ -430,10 +437,12 @@
             <div>Descuento</div><div id="pedidoDescuentoImporte" class="negative">-$0</div>
             <div>Base comisión</div><div id="pedidoBaseComision">$0</div>
             <div>Comisión vendedor</div><div id="pedidoComisionPreview">$0</div>
+            <div>Base diferida</div><div id="pedidoBaseDiferida">$0</div>
+            <div>Comisión diferida</div><div id="pedidoComisionDiferidaPreview">$0</div>
             <div>Ajuste</div><div id="pedidoAjusteImporte" class="positive">+$0</div>
             <div class="final-label">Total final</div><div id="pedidoTotal" class="final-value">$0</div>
           </div>
-          <div class="small" style="margin-top:10px">Regla de comisión: Subtotal productos - Descuento = Base comisión. El ajuste % no suma comisión.</div>
+          <div class="small" style="margin-top:10px">Regla de comisión: Subtotal productos - Descuento = Base comisión. La diferida se calcula solo sobre productos marcados SI en Sheets. El ajuste % no suma comisión.</div>
         </div>
         <div class="toolbar" style="margin-top:16px">
           <button id="btnGuardarPedido" class="btn success" onclick="guardarPedido()">Guardar pedido</button>
@@ -565,7 +574,12 @@
           <code>alter table pedidos add column if not exists ajuste_porcentaje numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists ajuste_importe numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists base_comision numeric default 0;</code><br>
-          <code>alter table pedidos add column if not exists porcentaje_comision numeric default 0;</code>
+          <code>alter table pedidos add column if not exists porcentaje_comision numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists referido_nombre text;</code><br>
+          <code>alter table pedidos add column if not exists referido_id uuid;</code><br>
+          <code>alter table pedidos add column if not exists porcentaje_comision_diferida numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists base_comision_diferida numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists comision_diferida_importe numeric default 0;</code>
         </div>
       </div>
     </section>
@@ -732,6 +746,11 @@ async function cargarDesdeSupabase(){
         ajuste_importe:x.ajuste_importe || 0,
         base_comision:x.base_comision || x.subtotal || x.total || 0,
         porcentaje_comision:x.porcentaje_comision || 0,
+        referido_nombre:x.referido_nombre || "",
+        referido_id:x.referido_id || null,
+        porcentaje_comision_diferida:x.porcentaje_comision_diferida || 0,
+        base_comision_diferida:x.base_comision_diferida || 0,
+        comision_diferida_importe:x.comision_diferida_importe || 0,
         comision_estado:x.comision_estado || x.commission_status || "",
         comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || "",
         comision_pagado_importe:Number(x.comision_pagado_importe || x.commission_paid_amount || 0),
@@ -799,6 +818,7 @@ async function sincronizarProductos(){
     const iImg=find(['imagen','url']);
     const iCat=find(['categoria','categoría']);
     const iMed=find(['medida']);
+    const iDif=find(['comision diferida','comisión diferida','diferida']);
     const nuevos = rows.map(r=>({
       sku:(r[iSku]||'').trim(),
       nombre:(r[iProd]||'').trim(),
@@ -807,6 +827,7 @@ async function sincronizarProductos(){
       imagen_url:iImg>=0?(r[iImg]||'').trim():'',
       categoria:iCat>=0?(r[iCat]||'').trim():'',
       medidas:iMed>=0?(r[iMed]||'').trim():'',
+      comision_diferida:iDif>=0 ? /^si|sí|s|true|1$/i.test(String(r[iDif]||'').trim()) : false,
       activo:true
     })).filter(p=>p.sku&&p.nombre);
 
@@ -834,7 +855,7 @@ function addQuickProduct(){
   if(!p) return alert("No encontré el producto.");
   const existing=pedidoActual.find(x=>x.sku==p.sku);
   if(existing){existing.cantidad += qty; existing.subtotal = existing.cantidad * existing.precio}
-  else pedidoActual.push({sku:p.sku,nombre:p.nombre,cantidad:qty,precio:Number(p.precio||0),subtotal:qty*Number(p.precio||0),codigo_barras:p.codigo_barras||''});
+  else pedidoActual.push({sku:p.sku,nombre:p.nombre,cantidad:qty,precio:Number(p.precio||0),subtotal:qty*Number(p.precio||0),codigo_barras:p.codigo_barras||'',comision_diferida:!!p.comision_diferida});
   document.getElementById("quickProduct").value='';
   document.getElementById("quickQty").value=1;
   renderPedidoActual();
@@ -859,13 +880,16 @@ function aplicarAjustePreset(){
 }
 function recalcularTotalesPedido(){
   const subtotal = pedidoActual.reduce((a,l)=>a+Number(l.subtotal||0),0);
+  const subtotal_diferida = pedidoActual.filter(l=>!!l.comision_diferida).reduce((a,l)=>a+Number(l.subtotal||0),0);
   const descuento_porcentaje = Math.max(0, Number(document.getElementById("pDescuento")?.value || 0));
   const ajuste_porcentaje = Math.max(0, Number(document.getElementById("pAjuste")?.value || 0));
   const descuento_importe = subtotal * descuento_porcentaje / 100;
+  const descuento_diferida = subtotal ? (subtotal_diferida * descuento_importe / subtotal) : 0;
   const base_comision = Math.max(0, subtotal - descuento_importe);
+  const base_comision_diferida = Math.max(0, subtotal_diferida - descuento_diferida);
   const ajuste_importe = base_comision * ajuste_porcentaje / 100;
   const total = base_comision + ajuste_importe;
-  return {subtotal, descuento_porcentaje, descuento_importe, base_comision, ajuste_porcentaje, ajuste_importe, total};
+  return {subtotal, subtotal_diferida, descuento_porcentaje, descuento_importe, base_comision, base_comision_diferida, ajuste_porcentaje, ajuste_importe, total};
 }
 function renderPedidoActual(){
   const tbody=document.getElementById("pedidoLineas");
@@ -875,16 +899,22 @@ function renderPedidoActual(){
     <td><input type="number" min="1" value="${l.cantidad}" onchange="updateQty(${i},this.value)"></td>
     <td>${money(l.precio)}</td>
     <td>${money(l.subtotal)}</td>
+    <td>${l.comision_diferida ? '<span class="badge green">SI</span>' : '<span class="badge">NO</span>'}</td>
     <td><button class="btn danger" onclick="removeLine(${i})">X</button></td>
   </tr>`).join('');
   const t = recalcularTotalesPedido();
   const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.innerText = val; };
   const pctComision = porcentajeComisionSeleccionado();
   const importeComision = t.base_comision * pctComision / 100;
+  const referido = vendedorReferidoSeleccionado();
+  const pctDif = porcentajeComisionDiferidaSeleccionado();
+  const importeDif = referido ? (t.base_comision_diferida * pctDif / 100) : 0;
   set("pedidoSubtotal", money(t.subtotal));
   set("pedidoDescuentoImporte", "-" + money(t.descuento_importe));
   set("pedidoBaseComision", money(t.base_comision));
   set("pedidoComisionPreview", money(importeComision) + (pctComision ? " (" + pctComision + "%)" : ""));
+  set("pedidoBaseDiferida", money(t.base_comision_diferida));
+  set("pedidoComisionDiferidaPreview", referido ? (money(importeDif) + " para " + referido.nombre + " (" + pctDif + "%)") : "$0");
   set("pedidoAjusteImporte", "+" + money(t.ajuste_importe));
   set("pedidoTotal", money(t.total));
 }
@@ -959,6 +989,11 @@ async function guardarPedido(){
       ajuste_importe: totales.ajuste_importe,
       base_comision: totales.base_comision,
       porcentaje_comision: Number(vendedor?.porcentaje_comision || 0),
+      referido_nombre: vendedorReferidoSeleccionado()?.nombre || "",
+      referido_id: vendedorReferidoSeleccionado()?.id || null,
+      porcentaje_comision_diferida: porcentajeComisionDiferidaSeleccionado(),
+      base_comision_diferida: totales.base_comision_diferida,
+      comision_diferida_importe: vendedorReferidoSeleccionado() ? (totales.base_comision_diferida * porcentajeComisionDiferidaSeleccionado() / 100) : 0,
       usuario_nombre: currentUser ? currentUser.nombre : "",
       usuario_rol: currentUser ? currentUser.rol : ""
     };
@@ -971,6 +1006,11 @@ async function guardarPedido(){
     delete cabeceraBasica.ajuste_importe;
     delete cabeceraBasica.base_comision;
     delete cabeceraBasica.porcentaje_comision;
+    delete cabeceraBasica.referido_nombre;
+    delete cabeceraBasica.referido_id;
+    delete cabeceraBasica.porcentaje_comision_diferida;
+    delete cabeceraBasica.base_comision_diferida;
+    delete cabeceraBasica.comision_diferida_importe;
     delete cabeceraBasica.metodo_entrega;
     delete cabeceraBasica.metodo_pago;
     delete cabeceraBasica.usuario_nombre;
@@ -1057,6 +1097,11 @@ async function guardarPedido(){
     ajuste_importe:totales.ajuste_importe,
     base_comision:totales.base_comision,
     porcentaje_comision: Number(vendedor?.porcentaje_comision || 0),
+    referido_nombre: vendedorReferidoSeleccionado()?.nombre || "",
+    referido_id: vendedorReferidoSeleccionado()?.id || null,
+    porcentaje_comision_diferida: porcentajeComisionDiferidaSeleccionado(),
+    base_comision_diferida: totales.base_comision_diferida,
+    comision_diferida_importe: vendedorReferidoSeleccionado() ? (totales.base_comision_diferida * porcentajeComisionDiferidaSeleccionado() / 100) : 0,
     total:total,
     comision_estado: pedidoEditandoId && comisionesPagas[pedidoEditandoId] ? "Pagada" : "Pendiente",
     comision_pagada_fecha: pedidoEditandoId && comisionesPagas[pedidoEditandoId] ? comisionesPagas[pedidoEditandoId].fecha : "",
@@ -1088,6 +1133,8 @@ function limpiarPedido(){
   ["pCliente","pTelefono","pObservaciones","quickProduct"].forEach(id=>document.getElementById(id).value='');
   const ent = document.getElementById("pMetodoEntrega"); if(ent) ent.value = "";
   const pag = document.getElementById("pMetodoPago"); if(pag) pag.value = "";
+  const ref = document.getElementById("pReferido"); if(ref) ref.value = "";
+  const pctDif = document.getElementById("pComisionDiferidaPct"); if(pctDif) pctDif.value = 5;
   document.getElementById("quickQty").value=1;
   document.getElementById("pEstado").value="Pendiente";
   const desc = document.getElementById("pDescuento"); if(desc) desc.value = 0;
@@ -1325,7 +1372,8 @@ async function editarPedido(id){
     cantidad: Number(l.cantidad||0),
     precio: Number(l.precio_unitario || l.precio || 0),
     subtotal: Number(l.subtotal||0),
-    codigo_barras: l.codigo_barras || ""
+    codigo_barras: l.codigo_barras || "",
+    comision_diferida: !!(l.comision_diferida || productos.find(p=>p.sku===(l.sku||""))?.comision_diferida)
   }));
 
   document.getElementById("pCliente").value = pedido.cliente || "";
@@ -1341,6 +1389,9 @@ async function editarPedido(id){
 
   const vendedorIndex = vendedores.findIndex(v=>v.id==pedido.vendedor_id || v.nombre==pedido.vendedor);
   document.getElementById("pVendedor").value = vendedorIndex >= 0 ? vendedorIndex : "";
+  const referidoIndex = vendedores.findIndex(v=>v.id==pedido.referido_id || v.nombre==pedido.referido_nombre);
+  const refSel = document.getElementById("pReferido"); if(refSel) refSel.value = referidoIndex >= 0 ? referidoIndex : "";
+  const pctDif = document.getElementById("pComisionDiferidaPct"); if(pctDif) pctDif.value = Number(pedido.porcentaje_comision_diferida || 5);
 
   renderPedidoActual();
 
@@ -1716,6 +1767,11 @@ async function verHistorialCliente(clienteId){
         ajuste_importe:x.ajuste_importe || 0,
         base_comision:x.base_comision || x.subtotal || x.total || 0,
         porcentaje_comision:x.porcentaje_comision || 0,
+        referido_nombre:x.referido_nombre || "",
+        referido_id:x.referido_id || null,
+        porcentaje_comision_diferida:x.porcentaje_comision_diferida || 0,
+        base_comision_diferida:x.base_comision_diferida || 0,
+        comision_diferida_importe:x.comision_diferida_importe || 0,
         comision_estado:x.comision_estado || x.commission_status || "",
         comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || "",
         metodo_entrega:x.metodo_entrega || x.entrega || "",
@@ -1749,6 +1805,8 @@ async function agregarVendedor(){
 }
 function renderVendedores(){
   document.getElementById("pVendedor").innerHTML='<option value="">Seleccionar vendedor</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
+  const ref = document.getElementById("pReferido");
+  if(ref) ref.innerHTML='<option value="">Referido / comisión diferida: Ninguno</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
   document.getElementById("tablaVendedores").innerHTML=table(["Nombre","Teléfono","Comisión","Activo"],vendedores.map(v=>[v.nombre,v.telefono||'',(v.porcentaje_comision||0)+"%",v.activo!==false?"Sí":"No"]));
 }
 function subtotalPedido(p){
@@ -1771,21 +1829,41 @@ function porcentajeComisionSeleccionado(){
   const vendedor = vendedores[idx] || null;
   return Number(vendedor?.porcentaje_comision || 0);
 }
+function vendedorReferidoSeleccionado(){
+  const idx = document.getElementById("pReferido")?.value;
+  return idx !== "" && idx !== undefined ? (vendedores[idx] || null) : null;
+}
+function porcentajeComisionDiferidaSeleccionado(){
+  return Math.max(0, Number(document.getElementById("pComisionDiferidaPct")?.value || 0));
+}
+function baseComisionDiferidaPedido(p){
+  if(Number(p?.base_comision_diferida||0)) return Number(p.base_comision_diferida||0);
+  const sub = subtotalPedido(p);
+  if(!Array.isArray(p?.lineas) || !p.lineas.length) return 0;
+  const subDif = p.lineas.filter(l=>!!l.comision_diferida).reduce((a,l)=>a+Number(l.subtotal||0),0);
+  const desc = Number(p?.descuento_importe||0) || (sub * Number(p?.descuento_porcentaje||0) / 100);
+  const descDif = sub ? (subDif * desc / sub) : 0;
+  return Math.max(0, subDif - descDif);
+}
+function comisionKeyPedido(key){ return String(key||"").replace(/__(normal|dif)$/,''); }
+function esComisionDiferidaKey(key){ return String(key||"").endsWith("__dif"); }
+function pedidoPorComisionKey(key){ const id = comisionKeyPedido(key); return pedidos.find(p=>String(p.id)===String(id)); }
 
 function porcentajeComisionPedido(p){
   const v = getVendedorDePedido(p);
   return Number(v?.porcentaje_comision || p.porcentaje_comision || 0);
 }
 
-function pagosManualesComisionPedido(p){
-  const desdeLocal = comisionesPagosManual[p.id];
+function pagosManualesComisionPedido(p, key){
+  const k = key || p.id;
+  const desdeLocal = comisionesPagosManual[k];
   if(Array.isArray(desdeLocal)) return desdeLocal;
   if(Array.isArray(p.comision_pagos)) return p.comision_pagos;
   return [];
 }
 
-function totalPagadoComisionPedido(p, importeGenerado){
-  const pagos = pagosManualesComisionPedido(p);
+function totalPagadoComisionPedido(p, importeGenerado, key){
+  const pagos = pagosManualesComisionPedido(p, key);
   const manual = pagos.reduce((a,x)=>a+Number(x.importe||0),0);
   const campo = Number(p.comision_pagado_importe || p.commission_paid_amount || 0);
   const totalManual = Math.max(manual, campo);
@@ -1794,29 +1872,33 @@ function totalPagadoComisionPedido(p, importeGenerado){
   return 0;
 }
 
-function estadoComisionPedido(p, importeGenerado){
+function estadoComisionPedido(p, importeGenerado, key){
   const importe = Number(importeGenerado||0);
-  const pagado = totalPagadoComisionPedido(p, importe);
+  const pagado = totalPagadoComisionPedido(p, importe, key);
   if(importe > 0 && pagado >= importe) return "Pagada";
   if(pagado > 0) return "Parcial";
-  if(comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada") return "Pagada";
+  if(comisionesPagas[key || p.id] || (!key && (p.comision_estado === "Pagada" || p.commission_status === "Pagada"))) return "Pagada";
   return "Pendiente";
 }
 
-function fechaPagoComisionPedido(p){
-  const pagos = pagosManualesComisionPedido(p);
+function fechaPagoComisionPedido(p, key){
+  const pagos = pagosManualesComisionPedido(p, key);
   if(pagos.length) return pagos[pagos.length-1].fecha || "";
-  return comisionesPagas[p.id]?.fecha || p.comision_pagada_fecha || p.commission_paid_at || "";
+  return comisionesPagas[key || p.id]?.fecha || (!key ? (p.comision_pagada_fecha || p.commission_paid_at || "") : "");
 }
 
 function calcComisionesDetalle(){
-  return pedidos.map(p=>{
+  const out = [];
+  pedidos.forEach(p=>{
     const pct = porcentajeComisionPedido(p);
     const base = baseComisionPedido(p);
     const importe = base * pct / 100;
-    const pagado = totalPagadoComisionPedido(p, importe);
+    const keyNormal = String(p.id) + "__normal";
+    const pagado = totalPagadoComisionPedido(p, importe, keyNormal);
     const saldo = Math.max(0, importe - pagado);
-    return {
+    out.push({
+      comision_key:keyNormal,
+      tipo:"Normal",
       pedido_id:p.id,
       fecha:p.fecha,
       mes:String(p.fecha||"").slice(0,7),
@@ -1830,10 +1912,40 @@ function calcComisionesDetalle(){
       importe,
       pagado,
       saldo,
-      estado:estadoComisionPedido(p, importe),
-      fecha_pago:fechaPagoComisionPedido(p)
-    };
+      estado:estadoComisionPedido(p, importe, keyNormal),
+      fecha_pago:fechaPagoComisionPedido(p, keyNormal)
+    });
+
+    const referidoNombre = p.referido_nombre || "";
+    const referidoId = p.referido_id || "";
+    const pctDif = Number(p.porcentaje_comision_diferida || 0);
+    const baseDif = baseComisionDiferidaPedido(p);
+    if(referidoNombre && pctDif > 0 && baseDif > 0){
+      const keyDif = String(p.id) + "__dif";
+      const importeDif = baseDif * pctDif / 100;
+      const pagadoDif = totalPagadoComisionPedido(p, importeDif, keyDif);
+      out.push({
+        comision_key:keyDif,
+        tipo:"Diferida",
+        pedido_id:p.id,
+        fecha:p.fecha,
+        mes:String(p.fecha||"").slice(0,7),
+        cliente:p.cliente || "",
+        vendedor:referidoNombre,
+        vendedor_id:referidoId,
+        total:Number(p.total||0),
+        subtotal:subtotalPedido(p),
+        base:baseDif,
+        pct:pctDif,
+        importe:importeDif,
+        pagado:pagadoDif,
+        saldo:Math.max(0, importeDif - pagadoDif),
+        estado:estadoComisionPedido(p, importeDif, keyDif),
+        fecha_pago:fechaPagoComisionPedido(p, keyDif)
+      });
+    }
   });
+  return out;
 }
 
 function calcComisiones(){
@@ -1914,10 +2026,11 @@ function renderComisiones(){
   }
 
   document.getElementById("tablaComisiones").innerHTML=table(
-    ["Fecha","Pedido","Cliente","Vendedor","Total final","Base comisión","%","Comisión","Pagado","Saldo","Estado","Último pago","Acción"],
+    ["Fecha","Pedido","Tipo","Cliente","Vendedor","Total final","Base comisión","%","Comisión","Pagado","Saldo","Estado","Último pago","Acción"],
     detalle.map(c=>[
       c.fecha ? new Date(c.fecha).toLocaleDateString("es-AR") : "",
       "#"+c.pedido_id,
+      c.tipo || "Normal",
       c.cliente,
       c.vendedor,
       money(c.total),
@@ -1929,10 +2042,10 @@ function renderComisiones(){
       c.estado==="Pagada" ? '<span class="badge green">Pagada</span>' : (c.estado==="Parcial" ? '<span class="badge purple">Parcial</span>' : '<span class="badge yellow">Pendiente</span>'),
       c.fecha_pago ? new Date(c.fecha_pago).toLocaleString("es-AR") : "-",
       `<div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn success" onclick="registrarPagoComisionManual(${JSON.stringify(c.pedido_id)})">Registrar pago</button>
-        <button class="btn secondary" onclick="marcarComisionPagada(${JSON.stringify(c.pedido_id)})">Pagar saldo</button>
-        <button class="btn secondary" onclick="verPagosComision(${JSON.stringify(c.pedido_id)})">Ver pagos</button>
-        ${c.pagado>0 || c.estado==="Pagada" ? `<button class="btn danger" onclick="marcarComisionPendiente(${JSON.stringify(c.pedido_id)})">Reset</button>` : ""}
+        <button class="btn success" onclick="registrarPagoComisionManual(${JSON.stringify(c.comision_key || c.pedido_id)})">Registrar pago</button>
+        <button class="btn secondary" onclick="marcarComisionPagada(${JSON.stringify(c.comision_key || c.pedido_id)})">Pagar saldo</button>
+        <button class="btn secondary" onclick="verPagosComision(${JSON.stringify(c.comision_key || c.pedido_id)})">Ver pagos</button>
+        ${c.pagado>0 || c.estado==="Pagada" ? `<button class="btn danger" onclick="marcarComisionPendiente(${JSON.stringify(c.comision_key || c.pedido_id)})">Reset</button>` : ""}
       </div>`
     ])
   );
@@ -1954,19 +2067,20 @@ async function guardarEstadoComisionSupabase(pedidoId, estado, fecha, pagadoImpo
 }
 
 async function marcarComisionPagada(pedidoId){
-  const pedido = pedidos.find(p=>p.id==pedidoId);
+  const pedido = pedidoPorComisionKey(pedidoId);
   if(!pedido) return;
-  const detalle = calcComisionesDetalle().find(c=>c.pedido_id==pedidoId);
+  const detalle = calcComisionesDetalle().find(c=>String(c.comision_key||c.pedido_id)===String(pedidoId));
   const saldo = Number(detalle?.saldo || 0);
   if(saldo <= 0) return alert("Esta comisión ya está pagada.");
   await agregarPagoComision(pedidoId, saldo, "Pago de saldo / comisión completa");
 }
 
 async function marcarComisionPendiente(pedidoId){
+  const key = pedidoId;
   if(!confirm("Esto borra los pagos registrados de esta comisión y la deja pendiente. ¿Confirmás?")) return;
-  delete comisionesPagas[pedidoId];
-  delete comisionesPagosManual[pedidoId];
-  const pedido = pedidos.find(p=>p.id==pedidoId);
+  delete comisionesPagas[key];
+  delete comisionesPagosManual[key];
+  const pedido = pedidoPorComisionKey(key);
   if(pedido){
     pedido.comision_estado = "Pendiente";
     pedido.comision_pagada_fecha = "";
@@ -1974,14 +2088,15 @@ async function marcarComisionPendiente(pedidoId){
     pedido.comision_pagos = [];
   }
   saveLocal();
-  await guardarEstadoComisionSupabase(pedidoId, "Pendiente", null, 0, []);
+  if(!esComisionDiferidaKey(key)) await guardarEstadoComisionSupabase(comisionKeyPedido(key), "Pendiente", null, 0, []);
   renderAll();
 }
 
 async function agregarPagoComision(pedidoId, importe, nota){
-  const pedido = pedidos.find(p=>p.id==pedidoId);
+  const key = pedidoId;
+  const pedido = pedidoPorComisionKey(key);
   if(!pedido) return;
-  const detalle = calcComisionesDetalle().find(c=>c.pedido_id==pedidoId);
+  const detalle = calcComisionesDetalle().find(c=>String(c.comision_key||c.pedido_id)===String(pedidoId));
   const generado = Number(detalle?.importe || 0);
   const saldoActual = Number(detalle?.saldo || generado);
   const monto = Math.min(Number(importe||0), saldoActual);
@@ -1995,13 +2110,13 @@ async function agregarPagoComision(pedidoId, importe, nota){
     usuario: currentUser?.nombre || ""
   };
 
-  const pagos = pagosManualesComisionPedido(pedido).concat([pago]);
+  const pagos = pagosManualesComisionPedido(pedido, key).concat([pago]);
   const pagado = pagos.reduce((a,x)=>a+Number(x.importe||0),0);
   const estado = pagado >= generado ? "Pagada" : "Parcial";
 
-  comisionesPagosManual[pedidoId] = pagos;
-  if(estado === "Pagada") comisionesPagas[pedidoId] = {estado:"Pagada", fecha};
-  else delete comisionesPagas[pedidoId];
+  comisionesPagosManual[key] = pagos;
+  if(estado === "Pagada") comisionesPagas[key] = {estado:"Pagada", fecha};
+  else delete comisionesPagas[key];
 
   pedido.comision_estado = estado;
   pedido.comision_pagada_fecha = fecha;
@@ -2009,12 +2124,12 @@ async function agregarPagoComision(pedidoId, importe, nota){
   pedido.comision_pagos = pagos;
 
   saveLocal();
-  await guardarEstadoComisionSupabase(pedidoId, estado, fecha, pedido.comision_pagado_importe, pagos);
+  if(!esComisionDiferidaKey(key)) await guardarEstadoComisionSupabase(comisionKeyPedido(key), estado, fecha, pedido.comision_pagado_importe, pagos);
   renderAll();
 }
 
 async function registrarPagoComisionManual(pedidoId){
-  const detalle = calcComisionesDetalle().find(c=>c.pedido_id==pedidoId);
+  const detalle = calcComisionesDetalle().find(c=>String(c.comision_key||c.pedido_id)===String(pedidoId));
   if(!detalle) return;
   if(detalle.saldo <= 0) return alert("Esta comisión ya está pagada.");
 
@@ -2029,9 +2144,10 @@ async function registrarPagoComisionManual(pedidoId){
 }
 
 function verPagosComision(pedidoId){
-  const pedido = pedidos.find(p=>p.id==pedidoId);
+  const key = pedidoId;
+  const pedido = pedidoPorComisionKey(key);
   if(!pedido) return;
-  const pagos = pagosManualesComisionPedido(pedido);
+  const pagos = pagosManualesComisionPedido(pedido, key);
   if(!pagos.length) return alert("No hay pagos parciales registrados para esta comisión.");
   alert(pagos.map((p,i)=>`${i+1}) ${p.fecha ? new Date(p.fecha).toLocaleString("es-AR") : ""} - ${money(p.importe)}${p.usuario ? " - " + p.usuario : ""}${p.nota ? "\n   " + p.nota : ""}`).join("\n\n"));
 }
@@ -2042,7 +2158,7 @@ async function pagarComisionesFiltradas(){
   if(!confirm(`Pagar el saldo de ${pendientes.length} comisión/es filtradas?`)) return;
 
   for(const c of pendientes){
-    await agregarPagoComision(c.pedido_id, c.saldo, "Pago masivo de saldo filtrado");
+    await agregarPagoComision(c.comision_key || c.pedido_id, c.saldo, "Pago masivo de saldo filtrado");
   }
   saveLocal();
   renderAll();
