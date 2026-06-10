@@ -121,6 +121,9 @@
     .badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#eef4ff;color:var(--blue);font-weight:800;font-size:12px}
     .badge.green{background:#e6f7ee;color:var(--green)}
     .badge.yellow{background:#fff7cc;color:#8a6d00}
+    .badge.red{background:#ffe8e8;color:var(--red)}
+    .badge.purple{background:#f3e8ff;color:#6b21a8}
+    .commission-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
     .empty{text-align:center;color:var(--muted);padding:26px}
     .small{font-size:12px;color:var(--muted)}
     .warning{background:#fff3cd;border:1px solid #ffe69c;border-radius:10px;padding:12px;margin-bottom:14px}
@@ -246,7 +249,7 @@
         <div class="card"><div class="metric-title">Pedidos</div><div class="metric-value" id="mPedidos">0</div></div>
         <div class="card"><div class="metric-title">Ventas cargadas</div><div class="metric-value" id="mVentas">$0</div></div>
         <div class="card"><div class="metric-title">Productos</div><div class="metric-value" id="mProductos">0</div></div>
-        <div class="card"><div class="metric-title">Comisiones</div><div class="metric-value" id="mComisiones">$0</div></div>
+        <div class="card"><div class="metric-title">Comisiones pendientes</div><div class="metric-value" id="mComisiones">$0</div></div>
       </div>
       <div class="card">
         <h2>Últimos pedidos</h2>
@@ -354,7 +357,34 @@
 
     <section id="comisiones" class="section">
       <h1>Comisiones</h1>
-      <div id="tablaComisiones"></div>
+      <div class="card">
+        <div class="commission-filters">
+          <select id="fComVendedor" onchange="renderComisiones()"></select>
+          <input id="fComMes" type="month" onchange="renderComisiones()">
+          <select id="fComEstado" onchange="renderComisiones()">
+            <option value="">Todas</option>
+            <option value="Pendiente">Pendientes</option>
+            <option value="Pagada">Pagadas</option>
+          </select>
+          <button class="btn success" onclick="pagarComisionesFiltradas()">Marcar filtradas como pagadas</button>
+          <button class="btn secondary" onclick="limpiarFiltrosComisiones()">Limpiar filtros</button>
+        </div>
+        <div class="small">Las comisiones se calculan por pedido usando el % cargado en cada vendedor. Al marcarlas como pagadas bajan del pendiente.</div>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="metric-title">Ventas filtradas</div><div class="metric-value" id="comVentasFiltradas">$0</div></div>
+        <div class="card"><div class="metric-title">Comisión generada</div><div class="metric-value" id="comGenerada">$0</div></div>
+        <div class="card"><div class="metric-title">Pagado</div><div class="metric-value" id="comPagada">$0</div></div>
+        <div class="card"><div class="metric-title">Pendiente</div><div class="metric-value" id="comPendiente">$0</div></div>
+      </div>
+      <div class="card">
+        <h2>Resumen por vendedor</h2>
+        <div id="tablaResumenComisiones"></div>
+      </div>
+      <div class="card">
+        <h2>Detalle por pedido</h2>
+        <div id="tablaComisiones"></div>
+      </div>
     </section>
 
     <section id="config" class="section">
@@ -368,6 +398,11 @@
         </div>
         <p class="small">Google Sheets CSV ya está configurado.</p>
         <button class="btn secondary" onclick="exportBackup()">Descargar backup local JSON</button>
+        <div class="warning" style="margin-top:14px">
+          <b>Opcional para Supabase:</b> si querés que el pago de comisiones quede guardado también en la nube, agregá estas columnas en la tabla <b>pedidos</b>:<br><br>
+          <code>alter table pedidos add column if not exists comision_estado text default 'Pendiente';</code><br>
+          <code>alter table pedidos add column if not exists comision_pagada_fecha timestamptz;</code>
+        </div>
       </div>
     </section>
   </main>
@@ -381,6 +416,7 @@ let productos = JSON.parse(localStorage.getItem("ed_productos") || "[]");
 let vendedores = JSON.parse(localStorage.getItem("ed_vendedores") || "[]");
 let clientes = JSON.parse(localStorage.getItem("ed_clientes") || "[]");
 let pedidos = JSON.parse(localStorage.getItem("ed_pedidos") || "[]");
+let comisionesPagas = JSON.parse(localStorage.getItem("ed_comisiones_pagas") || "{}");
 let pedidoActual = [];
 let pedidoEditandoId = null;
 let sb = null;
@@ -391,6 +427,7 @@ function saveLocal(){
   localStorage.setItem("ed_vendedores",JSON.stringify(vendedores));
   localStorage.setItem("ed_clientes",JSON.stringify(clientes));
   localStorage.setItem("ed_pedidos",JSON.stringify(pedidos));
+  localStorage.setItem("ed_comisiones_pagas",JSON.stringify(comisionesPagas));
 }
 function init(){
   document.getElementById("cfgUrl").value = localStorage.getItem("ed_supabase_url") || "";
@@ -432,7 +469,9 @@ async function cargarDesdeSupabase(){
         estado:x.estado,
         observaciones:x.observaciones || "",
         lineas:[],
-        total:x.total
+        total:x.total,
+        comision_estado:x.comision_estado || x.commission_status || "",
+        comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || ""
       }));
     }
 
@@ -662,7 +701,9 @@ async function guardarPedido(){
     estado:document.getElementById("pEstado").value,
     observaciones:document.getElementById("pObservaciones").value.trim(),
     lineas:[...pedidoActual],
-    total:total
+    total:total,
+    comision_estado: pedidoEditandoId && comisionesPagas[pedidoEditandoId] ? "Pagada" : "Pendiente",
+    comision_pagada_fecha: pedidoEditandoId && comisionesPagas[pedidoEditandoId] ? comisionesPagas[pedidoEditandoId].fecha : ""
   };
 
   if(!sb){
@@ -711,11 +752,11 @@ function download(name,content){
 }
 function renderDashboard(){
   const total=pedidos.reduce((a,p)=>a+Number(p.total||0),0);
-  const com=calcComisiones().reduce((a,c)=>a+c.importe,0);
+  const comPendiente=calcComisionesDetalle().filter(c=>c.estado==="Pendiente").reduce((a,c)=>a+c.importe,0);
   document.getElementById("mPedidos").innerText=pedidos.length;
   document.getElementById("mVentas").innerText=money(total);
   document.getElementById("mProductos").innerText=productos.length;
-  document.getElementById("mComisiones").innerText=money(com);
+  document.getElementById("mComisiones").innerText=money(comPendiente);
   document.getElementById("dashPedidos").innerHTML=renderPedidoTable(pedidos.slice(0,8));
 }
 
@@ -1114,7 +1155,9 @@ async function verHistorialCliente(clienteId){
         vendedor:x.vendedor_nombre || "",
         vendedor_id:x.vendedor_id,
         estado:x.estado,
-        total:x.total
+        total:x.total,
+        comision_estado:x.comision_estado || x.commission_status || "",
+        comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || ""
       }));
     }
   }
@@ -1146,30 +1189,207 @@ function renderVendedores(){
   document.getElementById("pVendedor").innerHTML='<option value="">Seleccionar vendedor</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
   document.getElementById("tablaVendedores").innerHTML=table(["Nombre","Teléfono","Comisión","Activo"],vendedores.map(v=>[v.nombre,v.telefono||'',(v.porcentaje_comision||0)+"%",v.activo!==false?"Sí":"No"]));
 }
+function getVendedorDePedido(p){
+  return vendedores.find(x=>x.id==p.vendedor_id || x.nombre==p.vendedor) || null;
+}
+
+function porcentajeComisionPedido(p){
+  const v = getVendedorDePedido(p);
+  return Number(v?.porcentaje_comision || p.porcentaje_comision || 0);
+}
+
+function estadoComisionPedido(p){
+  if(comisionesPagas[p.id]) return "Pagada";
+  if(p.comision_estado === "Pagada" || p.commission_status === "Pagada") return "Pagada";
+  return "Pendiente";
+}
+
+function fechaPagoComisionPedido(p){
+  return comisionesPagas[p.id]?.fecha || p.comision_pagada_fecha || p.commission_paid_at || "";
+}
+
+function calcComisionesDetalle(){
+  return pedidos.map(p=>{
+    const pct = porcentajeComisionPedido(p);
+    const importe = Number(p.total||0) * pct / 100;
+    return {
+      pedido_id:p.id,
+      fecha:p.fecha,
+      mes:String(p.fecha||"").slice(0,7),
+      cliente:p.cliente || "",
+      vendedor:p.vendedor || "Sin vendedor",
+      vendedor_id:p.vendedor_id || "",
+      total:Number(p.total||0),
+      pct,
+      importe,
+      estado:estadoComisionPedido(p),
+      fecha_pago:fechaPagoComisionPedido(p)
+    };
+  });
+}
+
 function calcComisiones(){
   const resumen = {};
-  pedidos.forEach(p=>{
-    const v=vendedores.find(x=>x.nombre==p.vendedor || x.id==p.vendedor_id);
-    const nombre = p.vendedor || (v ? v.nombre : "Sin vendedor");
-    const pct=Number(v?.porcentaje_comision||0);
-    if(!resumen[nombre]) resumen[nombre]={vendedor:nombre,pedidos:0,total:0,pct,importe:0};
-    resumen[nombre].pedidos += 1;
-    resumen[nombre].total += Number(p.total||0);
-    resumen[nombre].pct = pct;
-    resumen[nombre].importe = resumen[nombre].total * pct / 100;
+  calcComisionesDetalle().forEach(c=>{
+    const key = c.vendedor_id || c.vendedor;
+    if(!resumen[key]) resumen[key]={vendedor:c.vendedor,vendedor_id:c.vendedor_id,pedidos:0,total:0,pct:c.pct,importe:0,pagado:0,pendiente:0};
+    resumen[key].pedidos += 1;
+    resumen[key].total += c.total;
+    resumen[key].pct = c.pct;
+    resumen[key].importe += c.importe;
+    if(c.estado==="Pagada") resumen[key].pagado += c.importe;
+    else resumen[key].pendiente += c.importe;
   });
   return Object.values(resumen);
 }
 
+function llenarFiltroVendedoresComisiones(){
+  const sel = document.getElementById("fComVendedor");
+  if(!sel) return;
+  const actual = sel.value;
+  sel.innerHTML = '<option value="">Todos los vendedores</option>' + vendedores.map(v=>`<option value="${v.id || v.nombre}">${v.nombre}</option>`).join('');
+  sel.value = actual;
+}
+
+function comisionesFiltradas(){
+  const vendedor = document.getElementById("fComVendedor")?.value || "";
+  const mes = document.getElementById("fComMes")?.value || "";
+  const estado = document.getElementById("fComEstado")?.value || "";
+  return calcComisionesDetalle().filter(c=>{
+    const matchVendedor = !vendedor || c.vendedor_id==vendedor || c.vendedor==vendedor;
+    const matchMes = !mes || c.mes===mes;
+    const matchEstado = !estado || c.estado===estado;
+    return matchVendedor && matchMes && matchEstado;
+  });
+}
+
 function renderComisiones(){
+  llenarFiltroVendedoresComisiones();
+
+  const detalle = comisionesFiltradas();
+  const ventas = detalle.reduce((a,c)=>a+c.total,0);
+  const generada = detalle.reduce((a,c)=>a+c.importe,0);
+  const pagada = detalle.filter(c=>c.estado==="Pagada").reduce((a,c)=>a+c.importe,0);
+  const pendiente = detalle.filter(c=>c.estado==="Pendiente").reduce((a,c)=>a+c.importe,0);
+
+  const setText = (id,val)=>{ const el=document.getElementById(id); if(el) el.innerText=money(val); };
+  setText("comVentasFiltradas", ventas);
+  setText("comGenerada", generada);
+  setText("comPagada", pagada);
+  setText("comPendiente", pendiente);
+
+  const resumen = {};
+  detalle.forEach(c=>{
+    const key = c.vendedor_id || c.vendedor;
+    if(!resumen[key]) resumen[key]={vendedor:c.vendedor,pedidos:0,total:0,importe:0,pagado:0,pendiente:0};
+    resumen[key].pedidos++;
+    resumen[key].total += c.total;
+    resumen[key].importe += c.importe;
+    if(c.estado==="Pagada") resumen[key].pagado += c.importe;
+    else resumen[key].pendiente += c.importe;
+  });
+
+  const resumenRows = Object.values(resumen).map(r=>[
+    r.vendedor,
+    r.pedidos,
+    money(r.total),
+    money(r.importe),
+    `<span class="badge green">${money(r.pagado)}</span>`,
+    `<span class="badge yellow">${money(r.pendiente)}</span>`
+  ]);
+  const tablaResumen = document.getElementById("tablaResumenComisiones");
+  if(tablaResumen){
+    tablaResumen.innerHTML = table(["Vendedor","Pedidos","Ventas","Comisión total","Pagado","Pendiente"], resumenRows);
+  }
+
   document.getElementById("tablaComisiones").innerHTML=table(
-    ["Vendedor","Pedidos","Ventas","% Comisión","Comisión estimada"],
-    calcComisiones().map(c=>[c.vendedor,c.pedidos,money(c.total),c.pct+"%",money(c.importe)])
+    ["Fecha","Pedido","Cliente","Vendedor","Ventas","%","Comisión","Estado","Fecha pago","Acción"],
+    detalle.map(c=>[
+      c.fecha ? new Date(c.fecha).toLocaleDateString("es-AR") : "",
+      "#"+c.pedido_id,
+      c.cliente,
+      c.vendedor,
+      money(c.total),
+      c.pct+"%",
+      money(c.importe),
+      c.estado==="Pagada" ? '<span class="badge green">Pagada</span>' : '<span class="badge yellow">Pendiente</span>',
+      c.fecha_pago ? new Date(c.fecha_pago).toLocaleString("es-AR") : "-",
+      c.estado==="Pagada"
+        ? `<button class="btn secondary" onclick="marcarComisionPendiente(${JSON.stringify(c.pedido_id)})">Volver pendiente</button>`
+        : `<button class="btn success" onclick="marcarComisionPagada(${JSON.stringify(c.pedido_id)})">Marcar pagada</button>`
+    ])
   );
 }
 
+async function guardarEstadoComisionSupabase(pedidoId, estado, fecha){
+  if(!sb) return;
+  const camposPosibles = [
+    {comision_estado:estado, comision_pagada_fecha:fecha},
+    {commission_status:estado, commission_paid_at:fecha}
+  ];
+
+  for(const patch of camposPosibles){
+    const {error} = await sb.from("pedidos").update(patch).eq("id", pedidoId);
+    if(!error) return;
+  }
+}
+
+async function marcarComisionPagada(pedidoId){
+  const fecha = new Date().toISOString();
+  comisionesPagas[pedidoId] = {estado:"Pagada", fecha};
+  const pedido = pedidos.find(p=>p.id==pedidoId);
+  if(pedido){
+    pedido.comision_estado = "Pagada";
+    pedido.comision_pagada_fecha = fecha;
+  }
+  saveLocal();
+  await guardarEstadoComisionSupabase(pedidoId, "Pagada", fecha);
+  renderAll();
+}
+
+async function marcarComisionPendiente(pedidoId){
+  delete comisionesPagas[pedidoId];
+  const pedido = pedidos.find(p=>p.id==pedidoId);
+  if(pedido){
+    pedido.comision_estado = "Pendiente";
+    pedido.comision_pagada_fecha = "";
+  }
+  saveLocal();
+  await guardarEstadoComisionSupabase(pedidoId, "Pendiente", null);
+  renderAll();
+}
+
+async function pagarComisionesFiltradas(){
+  const pendientes = comisionesFiltradas().filter(c=>c.estado==="Pendiente");
+  if(!pendientes.length) return alert("No hay comisiones pendientes con esos filtros.");
+  if(!confirm(`Marcar ${pendientes.length} comisión/es como pagadas?`)) return;
+
+  for(const c of pendientes){
+    const fecha = new Date().toISOString();
+    comisionesPagas[c.pedido_id] = {estado:"Pagada", fecha};
+    const pedido = pedidos.find(p=>p.id==c.pedido_id);
+    if(pedido){
+      pedido.comision_estado = "Pagada";
+      pedido.comision_pagada_fecha = fecha;
+    }
+    await guardarEstadoComisionSupabase(c.pedido_id, "Pagada", fecha);
+  }
+  saveLocal();
+  renderAll();
+}
+
+function limpiarFiltrosComisiones(){
+  const v = document.getElementById("fComVendedor");
+  const m = document.getElementById("fComMes");
+  const e = document.getElementById("fComEstado");
+  if(v) v.value = "";
+  if(m) m.value = "";
+  if(e) e.value = "";
+  renderComisiones();
+}
+
 function exportBackup(){
-  download("backup_gestion_envases_devoto.json",JSON.stringify({productos,vendedores,clientes,pedidos},null,2));
+  download("backup_gestion_envases_devoto.json",JSON.stringify({productos,vendedores,clientes,pedidos,comisionesPagas},null,2));
 }
 function renderAll(){
   renderDashboard();renderPedidoActual();renderPedidos();renderPreparacion();renderProductos();renderClientes();renderVendedores();renderComisiones();
