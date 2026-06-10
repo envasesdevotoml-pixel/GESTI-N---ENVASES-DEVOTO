@@ -273,7 +273,7 @@
           <input id="pCliente" list="clientesSugeridos" placeholder="Cliente / Razón social" oninput="autocompletarCliente()">
           <datalist id="clientesSugeridos"></datalist>
           <input id="pTelefono" placeholder="WhatsApp / Teléfono">
-          <select id="pVendedor"></select>
+          <select id="pVendedor" onchange="renderPedidoActual()"></select>
           <select id="pEstado">
             <option>Pendiente</option>
             <option>En preparación</option>
@@ -340,10 +340,11 @@
             <div>Subtotal productos</div><div id="pedidoSubtotal">$0</div>
             <div>Descuento</div><div id="pedidoDescuentoImporte" class="negative">-$0</div>
             <div>Base comisión</div><div id="pedidoBaseComision">$0</div>
+            <div>Comisión vendedor</div><div id="pedidoComisionPreview">$0</div>
             <div>Ajuste</div><div id="pedidoAjusteImporte" class="positive">+$0</div>
             <div class="final-label">Total final</div><div id="pedidoTotal" class="final-value">$0</div>
           </div>
-          <div class="small" style="margin-top:10px">La comisión del vendedor se calcula sobre la base después del descuento, sin contar el ajuste.</div>
+          <div class="small" style="margin-top:10px">Regla de comisión: Subtotal productos - Descuento = Base comisión. El ajuste % no suma comisión.</div>
         </div>
         <div class="toolbar" style="margin-top:16px">
           <button id="btnGuardarPedido" class="btn success" onclick="guardarPedido()">Guardar pedido</button>
@@ -418,7 +419,7 @@
           <button class="btn success" onclick="pagarComisionesFiltradas()">Marcar filtradas como pagadas</button>
           <button class="btn secondary" onclick="limpiarFiltrosComisiones()">Limpiar filtros</button>
         </div>
-        <div class="small">Las comisiones se calculan por pedido usando el % cargado en cada vendedor. Al marcarlas como pagadas bajan del pendiente.</div>
+        <div class="small">Las comisiones se calculan por pedido usando el % cargado en cada vendedor. Base comisión = Subtotal - Descuento. El ajuste % no suma comisión. Al marcarlas como pagadas bajan del pendiente.</div>
       </div>
       <div class="grid">
         <div class="card"><div class="metric-title">Ventas filtradas</div><div class="metric-value" id="comVentasFiltradas">$0</div></div>
@@ -456,7 +457,8 @@
           <code>alter table pedidos add column if not exists descuento_importe numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists ajuste_porcentaje numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists ajuste_importe numeric default 0;</code><br>
-          <code>alter table pedidos add column if not exists base_comision numeric default 0;</code>
+          <code>alter table pedidos add column if not exists base_comision numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists porcentaje_comision numeric default 0;</code>
         </div>
       </div>
     </section>
@@ -531,6 +533,7 @@ async function cargarDesdeSupabase(){
         ajuste_porcentaje:x.ajuste_porcentaje || 0,
         ajuste_importe:x.ajuste_importe || 0,
         base_comision:x.base_comision || x.subtotal || x.total || 0,
+        porcentaje_comision:x.porcentaje_comision || 0,
         comision_estado:x.comision_estado || x.commission_status || "",
         comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || ""
       }));
@@ -672,9 +675,12 @@ function renderPedidoActual(){
   </tr>`).join('');
   const t = recalcularTotalesPedido();
   const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.innerText = val; };
+  const pctComision = porcentajeComisionSeleccionado();
+  const importeComision = t.base_comision * pctComision / 100;
   set("pedidoSubtotal", money(t.subtotal));
   set("pedidoDescuentoImporte", "-" + money(t.descuento_importe));
   set("pedidoBaseComision", money(t.base_comision));
+  set("pedidoComisionPreview", money(importeComision) + (pctComision ? " (" + pctComision + "%)" : ""));
   set("pedidoAjusteImporte", "+" + money(t.ajuste_importe));
   set("pedidoTotal", money(t.total));
 }
@@ -738,7 +744,8 @@ async function guardarPedido(){
       descuento_importe: totales.descuento_importe,
       ajuste_porcentaje: totales.ajuste_porcentaje,
       ajuste_importe: totales.ajuste_importe,
-      base_comision: totales.base_comision
+      base_comision: totales.base_comision,
+      porcentaje_comision: Number(vendedor?.porcentaje_comision || 0)
     };
 
     const cabeceraBasica = {...cabecera};
@@ -748,6 +755,7 @@ async function guardarPedido(){
     delete cabeceraBasica.ajuste_porcentaje;
     delete cabeceraBasica.ajuste_importe;
     delete cabeceraBasica.base_comision;
+    delete cabeceraBasica.porcentaje_comision;
 
     if(pedidoEditandoId){
       let resPedido = await sb
@@ -829,6 +837,7 @@ async function guardarPedido(){
     ajuste_porcentaje:totales.ajuste_porcentaje,
     ajuste_importe:totales.ajuste_importe,
     base_comision:totales.base_comision,
+    porcentaje_comision: Number(vendedor?.porcentaje_comision || 0),
     total:total,
     comision_estado: pedidoEditandoId && comisionesPagas[pedidoEditandoId] ? "Pagada" : "Pendiente",
     comision_pagada_fecha: pedidoEditandoId && comisionesPagas[pedidoEditandoId] ? comisionesPagas[pedidoEditandoId].fecha : ""
@@ -1310,6 +1319,7 @@ async function verHistorialCliente(clienteId){
         ajuste_porcentaje:x.ajuste_porcentaje || 0,
         ajuste_importe:x.ajuste_importe || 0,
         base_comision:x.base_comision || x.subtotal || x.total || 0,
+        porcentaje_comision:x.porcentaje_comision || 0,
         comision_estado:x.comision_estado || x.commission_status || "",
         comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || ""
       }));
@@ -1356,6 +1366,12 @@ function baseComisionPedido(p){
 }
 function getVendedorDePedido(p){
   return vendedores.find(x=>x.id==p.vendedor_id || x.nombre==p.vendedor) || null;
+}
+
+function porcentajeComisionSeleccionado(){
+  const idx = document.getElementById("pVendedor")?.value;
+  const vendedor = vendedores[idx] || null;
+  return Number(vendedor?.porcentaje_comision || 0);
 }
 
 function porcentajeComisionPedido(p){
