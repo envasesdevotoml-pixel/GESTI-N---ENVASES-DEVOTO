@@ -334,6 +334,31 @@
         <div class="card"><div class="metric-title">Productos</div><div class="metric-value" id="mProductos">0</div></div>
         <div class="card"><div class="metric-title">Comisiones pendientes</div><div class="metric-value" id="mComisiones">$0</div></div>
       </div>
+
+      <div class="card">
+        <div class="toolbar" style="justify-content:space-between">
+          <div>
+            <h2 style="margin-bottom:6px">Análisis mensual</h2>
+            <div class="small">Para que puedan ver rápido cuánto se vendió por mes, qué vendedor vendió más y qué productos salieron más.</div>
+          </div>
+          <div class="toolbar">
+            <input id="dashMes" type="month" onchange="renderDashboard()">
+            <button class="btn secondary" onclick="setDashMesActual()">Mes actual</button>
+            <button class="btn success" onclick="exportarPedidosExcel()">Exportar pedidos a Excel</button>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="card"><div class="metric-title">Ventas del mes</div><div class="metric-value" id="mVentasMes">$0</div></div>
+          <div class="card"><div class="metric-title">Pedidos del mes</div><div class="metric-value" id="mPedidosMes">0</div></div>
+          <div class="card"><div class="metric-title">Ticket promedio</div><div class="metric-value" id="mTicketMes">$0</div></div>
+          <div class="card"><div class="metric-title">Comisiones pendientes del mes</div><div class="metric-value" id="mComisionesMes">$0</div></div>
+        </div>
+        <div class="two">
+          <div class="card"><h2>Top vendedores</h2><div id="dashTopVendedores"></div></div>
+          <div class="card"><h2>Top productos</h2><div id="dashTopProductos"></div></div>
+        </div>
+      </div>
+
       <div class="card">
         <h2>Últimos pedidos</h2>
         <div id="dashPedidos"></div>
@@ -1375,9 +1400,31 @@ function download(name,content){
   a.download=name;
   a.click();
 }
+function periodoMesActual(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function mesDeFecha(v){
+  if(!v) return "";
+  const d = new Date(v);
+  if(isNaN(d)) return "";
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function setDashMesActual(){
+  const el = document.getElementById("dashMes");
+  if(el) el.value = periodoMesActual();
+  renderDashboard();
+}
+function pedidosDelMesSeleccionado(){
+  const el = document.getElementById("dashMes");
+  if(el && !el.value) el.value = periodoMesActual();
+  const mes = el?.value || periodoMesActual();
+  return pedidos.filter(p=>mesDeFecha(p.fecha) === mes);
+}
 function renderDashboard(){
   const total=pedidos.reduce((a,p)=>a+Number(p.total||0),0);
-  const comPendiente=calcComisionesDetalle().filter(c=>c.estado==="Pendiente").reduce((a,c)=>a+c.importe,0);
+  const comisionesDetalle = calcComisionesDetalle();
+  const comPendiente=comisionesDetalle.filter(c=>c.estado==="Pendiente").reduce((a,c)=>a+Number(c.importe||0),0);
   const countEstado = e => pedidos.filter(p=>p.estado===e).length;
   const setMetric=(id,val)=>{const el=document.getElementById(id); if(el) el.innerText=val};
   setMetric("mPendientes", countEstado("Pendiente"));
@@ -1385,12 +1432,56 @@ function renderDashboard(){
   setMetric("mPreparados", countEstado("Preparado"));
   setMetric("mEntregados", countEstado("Entregado"));
   setMetric("mCancelados", countEstado("Cancelado"));
-  document.getElementById("mPedidos").innerText=pedidos.length;
-  document.getElementById("mVentas").innerText=money(total);
-  document.getElementById("mProductos").innerText=productos.length;
-  document.getElementById("mComisiones").innerText=money(comPendiente);
-  document.getElementById("dashPedidos").innerHTML=renderPedidoTable(pedidos.slice(0,8));
+  setMetric("mPedidos", pedidos.length);
+  setMetric("mVentas", money(total));
+  setMetric("mProductos", productos.length);
+  setMetric("mComisiones", money(comPendiente));
+
+  const dashMes = document.getElementById("dashMes");
+  if(dashMes && !dashMes.value) dashMes.value = periodoMesActual();
+  const pedidosMes = pedidosDelMesSeleccionado();
+  const ventasMes = pedidosMes.reduce((a,p)=>a+Number(p.total||0),0);
+  const ticket = pedidosMes.length ? ventasMes / pedidosMes.length : 0;
+  const mes = dashMes?.value || periodoMesActual();
+  const comPendMes = comisionesDetalle.filter(c=>c.estado==="Pendiente" && mesDeFecha(c.fecha)===mes).reduce((a,c)=>a+Number(c.importe||0),0);
+  setMetric("mVentasMes", money(ventasMes));
+  setMetric("mPedidosMes", pedidosMes.length);
+  setMetric("mTicketMes", money(ticket));
+  setMetric("mComisionesMes", money(comPendMes));
+
+  const porVendedor = {};
+  pedidosMes.forEach(p=>{
+    const nombre = p.vendedor || getVendedorDePedido(p)?.nombre || "Sin vendedor";
+    if(!porVendedor[nombre]) porVendedor[nombre] = {pedidos:0,total:0};
+    porVendedor[nombre].pedidos += 1;
+    porVendedor[nombre].total += Number(p.total||0);
+  });
+  const topV = Object.entries(porVendedor)
+    .map(([nombre,x])=>({nombre,...x}))
+    .sort((a,b)=>b.total-a.total)
+    .slice(0,8);
+  const topVEl = document.getElementById("dashTopVendedores");
+  if(topVEl) topVEl.innerHTML = table(["Vendedor","Pedidos","Ventas"], topV.map(x=>[x.nombre,x.pedidos,money(x.total)]));
+
+  const porProducto = {};
+  pedidosMes.forEach(p=>{
+    (p.lineas||[]).forEach(l=>{
+      const sku = l.sku || "";
+      const nombre = l.nombre || l.producto || sku || "Producto";
+      const key = sku || nombre;
+      if(!porProducto[key]) porProducto[key] = {sku,nombre,cantidad:0,total:0};
+      porProducto[key].cantidad += Number(l.cantidad||0);
+      porProducto[key].total += Number(l.subtotal||0);
+    });
+  });
+  const topP = Object.values(porProducto).sort((a,b)=>b.total-a.total).slice(0,10);
+  const topPEl = document.getElementById("dashTopProductos");
+  if(topPEl) topPEl.innerHTML = table(["SKU","Producto","Cantidad","Ventas"], topP.map(x=>[x.sku,x.nombre,x.cantidad,money(x.total)]));
+
+  const dashPedidos = document.getElementById("dashPedidos");
+  if(dashPedidos) dashPedidos.innerHTML=renderPedidoTable(pedidos.slice(0,8));
 }
+
 
 function claseEstado(estado){
   const e = String(estado||"").toLowerCase()
@@ -1868,7 +1959,61 @@ function renderVendedores(){
   document.getElementById("pVendedor").innerHTML='<option value="">Seleccionar vendedor</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
   const ref = document.getElementById("pReferido");
   if(ref) ref.innerHTML='<option value="">Referido / comisión diferida: Ninguno</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
-  document.getElementById("tablaVendedores").innerHTML=table(["Nombre","Teléfono","Comisión","Activo"],vendedores.map(v=>[v.nombre,v.telefono||'',(v.porcentaje_comision||0)+"%",v.activo!==false?"Sí":"No"]));
+  document.getElementById("tablaVendedores").innerHTML=table(
+    ["Nombre","Teléfono","Comisión","Activo","Acciones"],
+    vendedores.map(v=>[
+      escapeHtml(v.nombre),
+      escapeHtml(v.telefono||''),
+      (v.porcentaje_comision ?? v.porcentaje ?? 0)+"%",
+      v.activo!==false?"Sí":"No",
+      `<button class="btn secondary" onclick="editarVendedor(${JSON.stringify(v.id)})">Editar</button> <button class="btn danger" onclick="eliminarODesactivarVendedor(${JSON.stringify(v.id)})">Eliminar</button>`
+    ])
+  );
+}
+
+async function editarVendedor(id){
+  const v = vendedores.find(x=>String(x.id)===String(id));
+  if(!v) return alert("No encontré el vendedor.");
+  const nombre = prompt("Nombre del vendedor", v.nombre || "");
+  if(nombre === null) return;
+  const telefono = prompt("Teléfono", v.telefono || "");
+  if(telefono === null) return;
+  const porcentajeActual = v.porcentaje_comision ?? v.porcentaje ?? 0;
+  const porcentajeTxt = prompt("% comisión normal", porcentajeActual);
+  if(porcentajeTxt === null) return;
+  const porcentaje = Number(String(porcentajeTxt).replace(",",".")) || 0;
+  const nuevo = { nombre:nombre.trim(), telefono:telefono.trim(), porcentaje_comision:porcentaje, porcentaje:porcentaje, activo:v.activo!==false };
+  if(!nuevo.nombre) return alert("El nombre no puede quedar vacío.");
+  if(sb && v.id){
+    const {error}=await sb.from("vendedores").update(nuevo).eq("id", v.id);
+    if(error) return alert("No se pudo modificar el vendedor: "+error.message);
+    await cargarDesdeSupabase();
+  }else{
+    Object.assign(v,nuevo);
+  }
+  saveLocal(); renderAll();
+}
+
+async function eliminarODesactivarVendedor(id){
+  const v = vendedores.find(x=>String(x.id)===String(id));
+  if(!v) return alert("No encontré el vendedor.");
+  const tienePedidos = pedidos.some(p=>String(p.vendedor_id)===String(v.id) || String(p.vendedor||"").toLowerCase()===String(v.nombre||"").toLowerCase());
+  if(tienePedidos){
+    if(!confirm(`El vendedor ${v.nombre} tiene pedidos asociados. No conviene borrarlo porque rompería el historial. ¿Querés desactivarlo?`)) return;
+    if(sb && v.id){
+      const {error}=await sb.from("vendedores").update({activo:false}).eq("id", v.id);
+      if(error) return alert("No se pudo desactivar: "+error.message);
+      await cargarDesdeSupabase();
+    }else v.activo=false;
+  }else{
+    if(!confirm(`¿Eliminar definitivamente a ${v.nombre}?`)) return;
+    if(sb && v.id){
+      const {error}=await sb.from("vendedores").delete().eq("id", v.id);
+      if(error) return alert("No se pudo eliminar. Lo desactivo como alternativa. Error: "+error.message);
+      await cargarDesdeSupabase();
+    }else vendedores = vendedores.filter(x=>String(x.id)!==String(id));
+  }
+  saveLocal(); renderAll();
 }
 function subtotalPedido(p){
   if(Number(p?.subtotal||0)) return Number(p.subtotal||0);
@@ -2357,6 +2502,58 @@ async function leerTablaBackup(nombre){
   if(error) throw new Error(`${nombre}: ${error.message}`);
   return data || [];
 }
+function excelSafe(v){
+  return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function exportarPedidosExcel(){
+  const dashMes = document.getElementById("dashMes");
+  const mes = dashMes?.value || "";
+  const data = mes ? pedidos.filter(p=>mesDeFecha(p.fecha)===mes) : pedidos;
+  const rows = [];
+  data.forEach(p=>{
+    const lineas = (p.lineas && p.lineas.length) ? p.lineas : [{sku:"", nombre:"", cantidad:"", precio:"", subtotal:""}];
+    lineas.forEach(l=>{
+      rows.push({
+        fecha: fechaAR(p.fecha),
+        pedido: p.id,
+        estado: p.estado || "",
+        cliente: p.cliente || "",
+        telefono: p.telefono || "",
+        vendedor: p.vendedor || "",
+        referido: p.referido_nombre || "",
+        sku: l.sku || "",
+        producto: l.nombre || l.producto || "",
+        cantidad: l.cantidad || "",
+        precio: l.precio || l.precio_unitario || "",
+        subtotal_linea: l.subtotal || "",
+        total_pedido: p.total || 0,
+        base_comision: baseComisionPedido(p),
+        porcentaje_comision: p.porcentaje_comision || getVendedorDePedido(p)?.porcentaje_comision || 0,
+        base_diferida: baseComisionDiferidaPedido(p),
+        porcentaje_diferida: p.porcentaje_comision_diferida || 0,
+        comision_diferida: p.comision_diferida_importe || 0,
+        metodo_entrega: p.metodo_entrega || "",
+        metodo_pago: p.metodo_pago || "",
+        observaciones: p.observaciones || ""
+      });
+    });
+  });
+  if(!rows.length) return alert("No hay pedidos para exportar.");
+  const headers = Object.keys(rows[0]);
+  const htmlTabla = `
+    <html><head><meta charset="UTF-8"></head><body>
+    <table border="1"><thead><tr>${headers.map(h=>`<th>${excelSafe(h)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${headers.map(h=>`<td>${excelSafe(r[h])}</td>`).join("")}</tr>`).join("")}</tbody></table>
+    </body></html>`;
+  const nombre = `pedidos_envases_devoto_${mes || "todos"}.xls`;
+  const blob=new Blob([htmlTabla],{type:"application/vnd.ms-excel;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=nombre;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 async function exportBackupCompleto(){
   try{
     const backup = {
