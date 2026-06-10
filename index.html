@@ -1047,16 +1047,123 @@ function limpiarPedido(){
   if(aviso) aviso.remove();
   renderPedidoActual();
 }
+function esc(v){
+  return String(v ?? "").replace(/[&<>"']/g, m => ({
+    "&":"&amp;",
+    "<":"&lt;",
+    ">":"&gt;",
+    "\"":"&quot;",
+    "'":"&#39;"
+  }[m]));
+}
+function fechaAR(v){
+  const d = v ? new Date(v) : new Date();
+  if(isNaN(d.getTime())) return "";
+  return d.toLocaleString("es-AR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+}
+function fileSafe(v){
+  return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9_-]+/g,"_").replace(/^_+|_+$/g,"").slice(0,50) || "sin_nombre";
+}
+function downloadHTMLExcel(name, bodyHTML){
+  const styles = `
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#111}
+      .doc{width:780px;margin:0 auto}
+      .top{border-bottom:3px solid #2094e6;padding-bottom:14px;margin-bottom:18px}
+      .brand{font-size:28px;font-weight:900;color:#0f172a;letter-spacing:.5px}
+      .subtitle{font-size:22px;font-weight:900;text-align:right;color:#2094e6}
+      .muted{color:#555;font-size:12px}
+      .box{border:1px solid #d9e2ef;border-radius:8px;padding:10px;margin:10px 0}
+      table{border-collapse:collapse;width:100%;margin-top:12px}
+      th{background:#071a34;color:white;font-weight:800;border:1px solid #071a34;padding:9px;text-align:left}
+      td{border:1px solid #d9e2ef;padding:8px;vertical-align:top}
+      .right{text-align:right}
+      .center{text-align:center}
+      .total-label{font-size:16px;font-weight:900;background:#f6f9fd}
+      .total-value{font-size:18px;font-weight:900;background:#fff8db}
+      .sign{height:70px;border-bottom:1px solid #999}
+    </style>`;
+  const html = `\ufeff<html><head><meta charset="UTF-8">${styles}</head><body>${bodyHTML}</body></html>`;
+  const blob=new Blob([html],{type:"application/vnd.ms-excel;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=name.endsWith(".xls") ? name : name + ".xls";
+  a.click();
+}
 function descargarPreparacion(p){
-  const lines = p.lineas.map(l=>`${l.sku};${l.nombre};${l.cantidad};${l.codigo_barras||''}`).join("\n");
-  download(`preparacion_pedido_${p.id}.csv`,`SKU;Producto;Cantidad;Codigo de barras\n${lines}`);
+  const lineas = p.lineas || [];
+  const cliente = p.cliente || document.getElementById("pCliente")?.value || "";
+  const vendedor = p.vendedor || (vendedores[document.getElementById("pVendedor")?.value]?.nombre || "");
+  const fecha = p.fecha || new Date().toISOString();
+  const obs = p.observaciones || document.getElementById("pObservaciones")?.value || "";
+  const body = `
+    <div class="doc">
+      <div class="top">
+        <table style="margin:0;border-collapse:collapse;width:100%">
+          <tr>
+            <td style="border:0;width:55%">
+              <div class="brand">ENVASES DEVOTO</div>
+              <div class="muted">Hoja interna de preparación</div>
+            </td>
+            <td style="border:0;width:45%;text-align:right">
+              <div class="subtitle">PREPARACIÓN</div>
+              <div><b>Pedido:</b> ${esc(p.id || "actual")}</div>
+              <div><b>Fecha de creación:</b> ${esc(fechaAR(fecha))}</div>
+            </td>
+          </tr>
+        </table>
+      </div>
+      <div class="box">
+        <table style="margin:0">
+          <tr><td><b>Cliente</b></td><td>${esc(cliente)}</td><td><b>Vendedor</b></td><td>${esc(vendedor)}</td></tr>
+          <tr><td><b>Observaciones</b></td><td colspan="3">${esc(obs)}</td></tr>
+        </table>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:130px">SKU</th>
+            <th>Producto</th>
+            <th style="width:160px">Código</th>
+            <th style="width:90px" class="center">Cantidad</th>
+            <th style="width:110px" class="center">Preparado</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lineas.map(l=>`
+            <tr>
+              <td>${esc(l.sku || "")}</td>
+              <td>${esc(l.producto || l.nombre || "")}</td>
+              <td style="mso-number-format:'\\@';">${esc(l.codigo_barras || "")}</td>
+              <td class="center"><b>${esc(l.cantidad || "")}</b></td>
+              <td class="center">☐</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+      <br>
+      <table>
+        <tr>
+          <td style="width:50%"><div class="sign"></div><div class="center muted">Preparó</div></td>
+          <td style="width:50%"><div class="sign"></div><div class="center muted">Controló</div></td>
+        </tr>
+      </table>
+    </div>`;
+  downloadHTMLExcel(`preparacion_pedido_${fileSafe(p.id || cliente || "actual")}.xls`, body);
 }
 function descargarPreparacionActual(){
-  const p={id:'actual',lineas:pedidoActual};
+  const vendedor = vendedores[document.getElementById("pVendedor")?.value] || null;
+  const p={
+    id: pedidoEditandoId || "actual",
+    fecha: new Date().toISOString(),
+    cliente: document.getElementById("pCliente")?.value || "",
+    vendedor: vendedor ? vendedor.nombre : "",
+    observaciones: document.getElementById("pObservaciones")?.value || "",
+    lineas: pedidoActual
+  };
   descargarPreparacion(p);
 }
 function download(name,content){
-  const blob=new Blob([content],{type:"text/csv;charset=utf-8"});
+  const blob=new Blob(["\ufeff"+content],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
   a.download=name;
@@ -1269,52 +1376,119 @@ async function verPreparacion(id){
 async function descargarPreparacionLimpia(id){
   const pedido = pedidos.find(p=>p.id==id);
   const lineas = await obtenerLineasPedido(id);
-
-  const rows = [
-    ["Pedido", id],
-    ["Cliente", pedido ? pedido.cliente : ""],
-    [],
-    ["SKU","Producto","Cantidad"],
-    ...lineas.map(l=>[
-      l.sku || "",
-      l.producto || l.nombre || "",
-      l.cantidad || ""
-    ])
-  ];
-
-  download(`preparacion_pedido_${id}.csv`, rows.map(r=>r.join(";")).join("\n"));
+  descargarPreparacion({
+    id,
+    fecha: pedido ? pedido.fecha : new Date().toISOString(),
+    cliente: pedido ? pedido.cliente : "",
+    vendedor: pedido ? pedido.vendedor : "",
+    observaciones: pedido ? pedido.observaciones : "",
+    lineas: lineas.map(l=>({
+      sku: l.sku || "",
+      nombre: l.producto || l.nombre || "",
+      producto: l.producto || l.nombre || "",
+      codigo_barras: l.codigo_barras || "",
+      cantidad: l.cantidad || ""
+    }))
+  });
 }
 
 async function exportarPedidoExcel(id){
   const pedido = pedidos.find(p=>p.id==id);
   const lineas = await obtenerLineasPedido(id);
+  if(!pedido) return alert("No encontré el pedido.");
 
-  const rows = [
-    ["Pedido", id],
-    ["Cliente", pedido ? pedido.cliente : ""],
-    ["Teléfono", pedido ? pedido.telefono : ""],
-    ["Vendedor", pedido ? pedido.vendedor : ""],
-    ["Estado", pedido ? pedido.estado : ""],
-    ["Subtotal", pedido ? subtotalPedido(pedido) : ""],
-    ["Descuento %", pedido ? Number(pedido.descuento_porcentaje||0) : ""],
-    ["Descuento importe", pedido ? Number(pedido.descuento_importe||0) : ""],
-    ["Base comisión", pedido ? baseComisionPedido(pedido) : ""],
-    ["Ajuste %", pedido ? Number(pedido.ajuste_porcentaje||0) : ""],
-    ["Ajuste importe", pedido ? Number(pedido.ajuste_importe||0) : ""],
-    ["Total final", pedido ? pedido.total : ""],
-    [],
-    ["SKU","Producto","Código","Cantidad","Precio unitario","Subtotal"],
-    ...lineas.map(l=>[
-      l.sku || "",
-      l.producto || l.nombre || "",
-      l.codigo_barras || "",
-      l.cantidad || "",
-      l.precio_unitario || l.precio || "",
-      l.subtotal || ""
-    ])
-  ];
+  const subtotal = subtotalPedido(pedido);
+  const descuentoPct = Number(pedido.descuento_porcentaje || 0);
+  const descuentoImp = Number(pedido.descuento_importe || 0);
+  const ajustePct = Number(pedido.ajuste_porcentaje || 0);
+  const ajusteImp = Number(pedido.ajuste_importe || 0);
+  const total = Number(pedido.total || 0);
 
-  download(`pedido_${id}.csv`, rows.map(r=>r.join(";")).join("\n"));
+  const body = `
+    <div class="doc">
+      <div class="top">
+        <table style="margin:0;border-collapse:collapse;width:100%">
+          <tr>
+            <td style="border:0;width:55%">
+              <div class="brand">ENVASES DEVOTO</div>
+              <div><b>Dirección:</b> Pola 2241</div>
+              <div><b>CUIT:</b> 30-71826487-8</div>
+            </td>
+            <td style="border:0;width:45%;text-align:right">
+              <div class="subtitle">REMITO</div>
+              <div><b>Pedido Nº:</b> ${esc(id)}</div>
+              <div><b>Fecha:</b> ${esc(fechaAR(pedido.fecha))}</div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="box">
+        <table style="margin:0">
+          <tr>
+            <td style="width:18%"><b>Cliente</b></td>
+            <td style="width:37%">${esc(pedido.cliente || "")}</td>
+            <td style="width:18%"><b>Teléfono</b></td>
+            <td style="width:27%;mso-number-format:'\\@';">${esc(pedido.telefono || "")}</td>
+          </tr>
+          <tr>
+            <td><b>Vendedor</b></td>
+            <td>${esc(pedido.vendedor || "")}</td>
+            <td><b>Estado</b></td>
+            <td>${esc(pedido.estado || "")}</td>
+          </tr>
+          <tr>
+            <td><b>Observaciones</b></td>
+            <td colspan="3">${esc(pedido.observaciones || "")}</td>
+          </tr>
+        </table>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:120px">SKU</th>
+            <th>Producto</th>
+            <th style="width:150px">Código</th>
+            <th style="width:85px" class="center">Cant.</th>
+            <th style="width:120px" class="right">Precio unit.</th>
+            <th style="width:120px" class="right">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lineas.map(l=>{
+            const precio = Number(l.precio_unitario || l.precio || 0);
+            const sub = Number(l.subtotal || (precio * Number(l.cantidad || 0)));
+            return `
+              <tr>
+                <td>${esc(l.sku || "")}</td>
+                <td>${esc(l.producto || l.nombre || "")}</td>
+                <td style="mso-number-format:'\\@';">${esc(l.codigo_barras || "")}</td>
+                <td class="center">${esc(l.cantidad || "")}</td>
+                <td class="right">${esc(money(precio))}</td>
+                <td class="right">${esc(money(sub))}</td>
+              </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+
+      <table style="width:360px;margin-left:auto">
+        <tr><td class="right total-label">Subtotal productos</td><td class="right">${esc(money(subtotal))}</td></tr>
+        ${descuentoPct || descuentoImp ? `<tr><td class="right total-label">Descuento ${esc(descuentoPct)}%</td><td class="right">-${esc(money(descuentoImp))}</td></tr>` : ""}
+        ${ajustePct || ajusteImp ? `<tr><td class="right total-label">Ajuste ${esc(ajustePct)}%</td><td class="right">${esc(money(ajusteImp))}</td></tr>` : ""}
+        <tr><td class="right total-label">TOTAL FINAL</td><td class="right total-value">${esc(money(total))}</td></tr>
+      </table>
+
+      <br><br>
+      <table>
+        <tr>
+          <td style="width:50%"><div class="sign"></div><div class="center muted">Recibí conforme</div></td>
+          <td style="width:50%"><div class="sign"></div><div class="center muted">Aclaración / DNI</div></td>
+        </tr>
+      </table>
+    </div>`;
+
+  downloadHTMLExcel(`remito_pedido_${fileSafe(id)}.xls`, body);
 }
 
 function renderPedidos(){
