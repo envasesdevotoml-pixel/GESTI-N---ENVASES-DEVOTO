@@ -453,12 +453,17 @@
     <section id="clientes" class="section">
       <h1>Clientes</h1>
       <div class="card">
-        <div class="toolbar">
-          <input id="cNombre" placeholder="Nombre cliente">
+        <div class="toolbar" style="display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px;align-items:end">
+          <input id="cNombre" placeholder="Nombre / Razón social">
           <input id="cTelefono" placeholder="Teléfono">
-          <input id="cDireccion" placeholder="Dirección">
+          <input id="cDireccion" placeholder="Domicilio">
+          <input id="cLocalidad" placeholder="Localidad">
+          <input id="cProvincia" placeholder="Provincia">
+          <input id="cCodigoPostal" placeholder="Código postal">
+          <input id="cCuit" placeholder="CUIT">
           <button class="btn" onclick="agregarCliente()">Agregar cliente</button>
         </div>
+        <div class="small">Los datos extra son opcionales. Se usan para completar el remito.</div>
       </div>
       <div id="tablaClientes"></div>
     </section>
@@ -540,7 +545,12 @@
           <code>alter table pedidos add column if not exists ajuste_porcentaje numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists ajuste_importe numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists base_comision numeric default 0;</code><br>
-          <code>alter table pedidos add column if not exists porcentaje_comision numeric default 0;</code>
+          <code>alter table pedidos add column if not exists porcentaje_comision numeric default 0;</code><br><br>
+          <b>Para guardar datos completos de clientes:</b><br>
+          <code>alter table clientes add column if not exists localidad text;</code><br>
+          <code>alter table clientes add column if not exists provincia text;</code><br>
+          <code>alter table clientes add column if not exists codigo_postal text;</code><br>
+          <code>alter table clientes add column if not exists cuit text;</code>
         </div>
       </div>
     </section>
@@ -1064,24 +1074,55 @@ function fechaAR(v){
 function fileSafe(v){
   return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9_-]+/g,"_").replace(/^_+|_+$/g,"").slice(0,50) || "sin_nombre";
 }
+function getLogoSrc(){
+  return document.querySelector(".brand img")?.src || "";
+}
+function clienteDePedido(p){
+  if(!p) return {};
+  return clientes.find(c => String(c.id||"")===String(p.cliente_id||"")) ||
+         clientes.find(c => String(c.nombre||"").toLowerCase()===String(p.cliente||"").toLowerCase()) || {};
+}
+function clienteDato(cliente, campo){
+  if(!cliente) return "";
+  const aliases = {
+    direccion:["direccion","domicilio","address"],
+    localidad:["localidad","ciudad","city"],
+    provincia:["provincia","province"],
+    codigo_postal:["codigo_postal","codigoPostal","cp","postal_code"],
+    cuit:["cuit","CUIT"]
+  };
+  const keys = aliases[campo] || [campo];
+  for(const k of keys){
+    if(cliente[k] !== undefined && cliente[k] !== null && String(cliente[k]).trim() !== "") return cliente[k];
+  }
+  return "";
+}
 function downloadHTMLExcel(name, bodyHTML){
   const styles = `
     <style>
       body{font-family:Arial,Helvetica,sans-serif;color:#111}
-      .doc{width:780px;margin:0 auto}
+      .doc{width:900px;margin:0 auto}
+      .remito-grid{width:100%;border-collapse:separate;border-spacing:10px;margin:0 0 4px 0}
+      .remito-box{border:2px solid #cfcfcf;border-radius:18px;padding:14px;vertical-align:top;background:#fff}
+      .empresa-logo{max-width:135px;max-height:80px;display:block}
+      .remito-title{font-size:26px;font-weight:900;color:#111;margin-bottom:14px}
+      .line-label{font-weight:900;width:120px;white-space:nowrap}
       .top{border-bottom:3px solid #2094e6;padding-bottom:14px;margin-bottom:18px}
       .brand{font-size:28px;font-weight:900;color:#0f172a;letter-spacing:.5px}
       .subtitle{font-size:22px;font-weight:900;text-align:right;color:#2094e6}
       .muted{color:#555;font-size:12px}
-      .box{border:1px solid #d9e2ef;border-radius:8px;padding:10px;margin:10px 0}
+      .box{border:2px solid #cfcfcf;border-radius:18px;padding:10px;margin:10px 0;background:#fff}
       table{border-collapse:collapse;width:100%;margin-top:12px}
-      th{background:#071a34;color:white;font-weight:800;border:1px solid #071a34;padding:9px;text-align:left}
-      td{border:1px solid #d9e2ef;padding:8px;vertical-align:top}
+      th{background:#18b98e;color:white;font-weight:900;border:1px solid #18b98e;padding:10px;text-align:left;text-transform:uppercase}
+      td{border:1px solid #e5e5e5;padding:8px;vertical-align:top}
       .right{text-align:right}
       .center{text-align:center}
       .total-label{font-size:16px;font-weight:900;background:#f6f9fd}
       .total-value{font-size:18px;font-weight:900;background:#fff8db}
       .sign{height:70px;border-bottom:1px solid #999}
+      .no-border td{border:0;padding:4px 6px}
+      .article-table td{height:26px}
+      .footnote{font-size:11px;color:#555}
     </style>`;
   const html = `\ufeff<html><head><meta charset="UTF-8">${styles}</head><body>${bodyHTML}</body></html>`;
   const blob=new Blob([html],{type:"application/vnd.ms-excel;charset=utf-8"});
@@ -1397,61 +1438,81 @@ async function exportarPedidoExcel(id){
   const lineas = await obtenerLineasPedido(id);
   if(!pedido) return alert("No encontré el pedido.");
 
+  const clienteInfo = clienteDePedido(pedido);
   const subtotal = subtotalPedido(pedido);
   const descuentoPct = Number(pedido.descuento_porcentaje || 0);
   const descuentoImp = Number(pedido.descuento_importe || 0);
   const ajustePct = Number(pedido.ajuste_porcentaje || 0);
   const ajusteImp = Number(pedido.ajuste_importe || 0);
   const total = Number(pedido.total || 0);
+  const logo = getLogoSrc();
+
+  const filasVacias = Array.from({length: Math.max(0, 8 - lineas.length)}).map(()=>`
+    <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>
+  `).join("");
 
   const body = `
     <div class="doc">
-      <div class="top">
-        <table style="margin:0;border-collapse:collapse;width:100%">
-          <tr>
-            <td style="border:0;width:55%">
-              <div class="brand">ENVASES DEVOTO</div>
-              <div><b>Dirección:</b> Pola 2241</div>
-              <div><b>CUIT:</b> 30-71826487-8</div>
-            </td>
-            <td style="border:0;width:45%;text-align:right">
-              <div class="subtitle">REMITO</div>
-              <div><b>Pedido Nº:</b> ${esc(id)}</div>
-              <div><b>Fecha:</b> ${esc(fechaAR(pedido.fecha))}</div>
-            </td>
-          </tr>
-        </table>
-      </div>
+      <table class="remito-grid">
+        <tr>
+          <td class="remito-box" style="width:72%">
+            <table class="no-border" style="margin:0;width:100%">
+              <tr>
+                <td style="width:150px;text-align:center;vertical-align:middle">
+                  ${logo ? `<img class="empresa-logo" src="${logo}">` : `<div class="brand">ENVASES DEVOTO</div>`}
+                </td>
+                <td>
+                  <table class="no-border" style="margin:0;width:100%">
+                    <tr><td class="line-label">Razón Social</td><td><b>ENVASES DEVOTO</b></td></tr>
+                    <tr><td class="line-label">CUIT</td><td>30-71826487-8</td></tr>
+                    <tr><td class="line-label">Dirección</td><td>Pola 2241</td></tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+          <td class="remito-box" style="width:28%">
+            <div class="remito-title">REMITO</div>
+            <table class="no-border" style="margin:0;width:100%">
+              <tr><td class="line-label">Nº</td><td>${esc(id)}</td></tr>
+              <tr><td class="line-label">Fecha</td><td>${esc(fechaAR(pedido.fecha))}</td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
 
       <div class="box">
-        <table style="margin:0">
+        <table class="no-border" style="margin:0;width:100%">
           <tr>
-            <td style="width:18%"><b>Cliente</b></td>
-            <td style="width:37%">${esc(pedido.cliente || "")}</td>
-            <td style="width:18%"><b>Teléfono</b></td>
-            <td style="width:27%;mso-number-format:'\\@';">${esc(pedido.telefono || "")}</td>
+            <td class="line-label">Nombre</td><td>${esc(pedido.cliente || "")}</td>
+            <td class="line-label">Teléfono</td><td style="mso-number-format:'\\@';">${esc(pedido.telefono || clienteInfo.telefono || "")}</td>
           </tr>
           <tr>
-            <td><b>Vendedor</b></td>
-            <td>${esc(pedido.vendedor || "")}</td>
-            <td><b>Estado</b></td>
-            <td>${esc(pedido.estado || "")}</td>
+            <td class="line-label">Domicilio</td><td>${esc(clienteDato(clienteInfo,"direccion"))}</td>
+            <td class="line-label">C.P.</td><td style="mso-number-format:'\\@';">${esc(clienteDato(clienteInfo,"codigo_postal"))}</td>
           </tr>
           <tr>
-            <td><b>Observaciones</b></td>
-            <td colspan="3">${esc(pedido.observaciones || "")}</td>
+            <td class="line-label">Localidad</td><td>${esc(clienteDato(clienteInfo,"localidad"))}</td>
+            <td class="line-label">Provincia</td><td>${esc(clienteDato(clienteInfo,"provincia"))}</td>
+          </tr>
+          <tr>
+            <td class="line-label">CUIT</td><td style="mso-number-format:'\\@';">${esc(clienteDato(clienteInfo,"cuit"))}</td>
+            <td class="line-label">Vendedor</td><td>${esc(pedido.vendedor || "")}</td>
+          </tr>
+          <tr>
+            <td class="line-label">Otros Datos</td><td colspan="3">${esc(pedido.observaciones || "")}</td>
           </tr>
         </table>
       </div>
 
-      <table>
+      <table class="article-table">
         <thead>
           <tr>
-            <th style="width:120px">SKU</th>
-            <th>Producto</th>
-            <th style="width:150px">Código</th>
-            <th style="width:85px" class="center">Cant.</th>
-            <th style="width:120px" class="right">Precio unit.</th>
+            <th style="width:95px" class="center">SKU</th>
+            <th>Nombre</th>
+            <th style="width:155px" class="center">Código de barra</th>
+            <th style="width:85px" class="center">Cantidad</th>
+            <th style="width:120px" class="right">Precio unitario</th>
             <th style="width:120px" class="right">Subtotal</th>
           </tr>
         </thead>
@@ -1461,31 +1522,33 @@ async function exportarPedidoExcel(id){
             const sub = Number(l.subtotal || (precio * Number(l.cantidad || 0)));
             return `
               <tr>
-                <td>${esc(l.sku || "")}</td>
+                <td class="center">${esc(l.sku || "")}</td>
                 <td>${esc(l.producto || l.nombre || "")}</td>
-                <td style="mso-number-format:'\\@';">${esc(l.codigo_barras || "")}</td>
-                <td class="center">${esc(l.cantidad || "")}</td>
+                <td class="center" style="mso-number-format:'\\@';">${esc(l.codigo_barras || "")}</td>
+                <td class="center"><b>${esc(l.cantidad || "")}</b></td>
                 <td class="right">${esc(money(precio))}</td>
                 <td class="right">${esc(money(sub))}</td>
               </tr>`;
           }).join("")}
+          ${filasVacias}
         </tbody>
       </table>
 
-      <table style="width:360px;margin-left:auto">
+      <table style="width:420px;margin-left:auto;margin-top:16px">
         <tr><td class="right total-label">Subtotal productos</td><td class="right">${esc(money(subtotal))}</td></tr>
         ${descuentoPct || descuentoImp ? `<tr><td class="right total-label">Descuento ${esc(descuentoPct)}%</td><td class="right">-${esc(money(descuentoImp))}</td></tr>` : ""}
         ${ajustePct || ajusteImp ? `<tr><td class="right total-label">Ajuste ${esc(ajustePct)}%</td><td class="right">${esc(money(ajusteImp))}</td></tr>` : ""}
-        <tr><td class="right total-label">TOTAL FINAL</td><td class="right total-value">${esc(money(total))}</td></tr>
+        <tr><td class="right total-label">TOTAL</td><td class="right total-value">${esc(money(total))}</td></tr>
       </table>
 
       <br><br>
-      <table>
+      <table style="margin-top:22px">
         <tr>
-          <td style="width:50%"><div class="sign"></div><div class="center muted">Recibí conforme</div></td>
-          <td style="width:50%"><div class="sign"></div><div class="center muted">Aclaración / DNI</div></td>
+          <td style="width:50%"><div class="sign"></div><div class="center muted">Recibió conforme</div></td>
+          <td style="width:50%"><div class="sign"></div><div class="center muted">Aclaración</div></td>
         </tr>
       </table>
+      <div class="footnote">Documento no válido como factura.</div>
     </div>`;
 
   downloadHTMLExcel(`remito_pedido_${fileSafe(id)}.xls`, body);
@@ -1648,17 +1711,38 @@ function renderProductos(){
   document.getElementById("tablaProductos").innerHTML=table(["SKU","Producto","Código","Precio","Categoría","Medidas"],data.map(p=>[p.sku,p.nombre,p.codigo_barras||'',money(p.precio),p.categoria||'',p.medidas||'']));
 }
 async function agregarCliente(){
-  const c={nombre:document.getElementById("cNombre").value.trim(),telefono:document.getElementById("cTelefono").value.trim(),direccion:document.getElementById("cDireccion").value.trim()};
+  const c={
+    nombre:document.getElementById("cNombre").value.trim(),
+    telefono:document.getElementById("cTelefono").value.trim(),
+    direccion:document.getElementById("cDireccion").value.trim(),
+    localidad:document.getElementById("cLocalidad").value.trim(),
+    provincia:document.getElementById("cProvincia").value.trim(),
+    codigo_postal:document.getElementById("cCodigoPostal").value.trim(),
+    cuit:document.getElementById("cCuit").value.trim()
+  };
   if(!c.nombre) return alert("Falta nombre.");
-  if(sb){const {error}=await sb.from("clientes").insert(c); if(error) return alert(error.message); await cargarDesdeSupabase()}
-  else clientes.push(c);
+  if(sb){
+    let res = await sb.from("clientes").insert(c);
+    if(res.error){
+      const basico = {nombre:c.nombre, telefono:c.telefono, direccion:c.direccion};
+      res = await sb.from("clientes").insert(basico);
+      if(res.error) return alert(res.error.message);
+      alert("Cliente guardado con datos básicos. Para guardar CUIT, localidad, provincia y código postal en Supabase hay que agregar esas columnas en la tabla clientes.");
+    }
+    await cargarDesdeSupabase();
+  } else clientes.push(c);
+  ["cNombre","cTelefono","cDireccion","cLocalidad","cProvincia","cCodigoPostal","cCuit"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
   saveLocal(); renderAll();
 }
 function renderClientes(){
-  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Dirección",""],clientes.map(c=>[
+  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT",""],clientes.map(c=>[
     c.nombre,
     c.telefono||'',
-    c.direccion||'',
+    clienteDato(c,"direccion")||'',
+    clienteDato(c,"localidad")||'',
+    clienteDato(c,"provincia")||'',
+    clienteDato(c,"codigo_postal")||'',
+    clienteDato(c,"cuit")||'',
     `<button class="btn secondary" onclick="verHistorialCliente(${c.id})">Historial</button>`
   ]));
 }
