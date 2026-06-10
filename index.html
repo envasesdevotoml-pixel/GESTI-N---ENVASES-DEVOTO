@@ -513,6 +513,7 @@
           <input id="cProvincia" placeholder="Provincia">
           <input id="cCodigoPostal" placeholder="Código postal">
           <input id="cCuit" placeholder="CUIT">
+          <input id="cDescuentoFijo" type="number" min="0" step="0.01" placeholder="Descuento fijo %">
           <button class="btn" onclick="agregarCliente()">Agregar cliente</button>
         </div>
         <div class="small" style="margin-top:10px">Los datos extra son opcionales y se usan para el remito.</div>
@@ -618,6 +619,7 @@
           <code>alter table pedidos add column if not exists porcentaje_comision_diferida numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists base_comision_diferida numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists comision_diferida_importe numeric default 0;</code><br>
+          <code>alter table clientes add column if not exists descuento_fijo numeric default 0;</code><br>
           <code>alter table productos add column if not exists comision_diferida boolean default false;</code><br>
           <code>alter table detalle_pedidos add column if not exists comision_diferida boolean default false;</code><br>
           <code>notify pgrst, 'reload schema';</code>
@@ -1025,7 +1027,8 @@ async function guardarPedido(){
         localidad: "",
         provincia: "",
         codigo_postal: "",
-        cuit: ""
+        cuit: "",
+        descuento_fijo: Math.max(0, Number(document.getElementById("pDescuento")?.value || 0))
       };
 
       let resCliente = await sb
@@ -1844,6 +1847,7 @@ function renderProductos(){
   document.getElementById("tablaProductos").innerHTML=table(["SKU","Producto","Código","Precio","Categoría","Medidas"],data.map(p=>[p.sku,p.nombre,p.codigo_barras||'',money(p.precio),p.categoria||'',p.medidas||'']));
 }
 async function agregarCliente(){
+  const descuentoFijo = Math.max(0, Number(String(document.getElementById("cDescuentoFijo")?.value || 0).replace(",",".")) || 0);
   const c={
     nombre:document.getElementById("cNombre").value.trim(),
     telefono:document.getElementById("cTelefono").value.trim(),
@@ -1851,7 +1855,8 @@ async function agregarCliente(){
     localidad:document.getElementById("cLocalidad").value.trim(),
     provincia:document.getElementById("cProvincia").value.trim(),
     codigo_postal:document.getElementById("cCodigoPostal").value.trim(),
-    cuit:document.getElementById("cCuit").value.trim()
+    cuit:document.getElementById("cCuit").value.trim(),
+    descuento_fijo:descuentoFijo
   };
   if(!c.nombre) return alert("Falta nombre.");
   if(sb){
@@ -1859,37 +1864,101 @@ async function agregarCliente(){
     if(res.error){
       const basico = {nombre:c.nombre, telefono:c.telefono, direccion:c.direccion};
       res = await sb.from("clientes").insert(basico);
+      if(!res.error && c.descuento_fijo){
+        alert("Cliente guardado, pero Supabase todavía no tiene la columna descuento_fijo. Agregala para guardar el descuento preferencial.");
+      }
     }
     if(res.error) return alert(res.error.message);
     await cargarDesdeSupabase();
   }
   else clientes.push(c);
-  ["cNombre","cTelefono","cDireccion","cLocalidad","cProvincia","cCodigoPostal","cCuit"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
+  ["cNombre","cTelefono","cDireccion","cLocalidad","cProvincia","cCodigoPostal","cCuit","cDescuentoFijo"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
   saveLocal(); renderAll();
 }
 function renderClientes(){
-  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT",""],clientes.map(c=>[
-    c.nombre,
-    c.telefono||'',
-    c.direccion||'',
-    c.localidad||'',
-    c.provincia||'',
-    c.codigo_postal||c.cp||'',
-    c.cuit||'',
-    `<button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button>`
+  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT","Desc. fijo","Acciones"],clientes.map(c=>[
+    escapeHtml(c.nombre),
+    escapeHtml(c.telefono||''),
+    escapeHtml(c.direccion||''),
+    escapeHtml(c.localidad||''),
+    escapeHtml(c.provincia||''),
+    escapeHtml(c.codigo_postal||c.cp||''),
+    escapeHtml(c.cuit||''),
+    (Number(c.descuento_fijo||0) ? Number(c.descuento_fijo||0)+"%" : "-"),
+    `<button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button> <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar</button> <button class="btn danger" onclick="eliminarCliente(${JSON.stringify(c.id)})">Eliminar</button>`
   ]));
+}
+
+async function editarCliente(id){
+  const c = clientes.find(x=>String(x.id)===String(id));
+  if(!c) return alert("No encontré el cliente.");
+  const nombre = prompt("Nombre / Razón social", c.nombre || "");
+  if(nombre === null) return;
+  const telefono = prompt("Teléfono", c.telefono || "");
+  if(telefono === null) return;
+  const direccion = prompt("Domicilio", c.direccion || "");
+  if(direccion === null) return;
+  const localidad = prompt("Localidad", c.localidad || "");
+  if(localidad === null) return;
+  const provincia = prompt("Provincia", c.provincia || "");
+  if(provincia === null) return;
+  const codigo_postal = prompt("Código postal", c.codigo_postal || c.cp || "");
+  if(codigo_postal === null) return;
+  const cuit = prompt("CUIT", c.cuit || "");
+  if(cuit === null) return;
+  const descuentoTxt = prompt("Descuento fijo % para este cliente", c.descuento_fijo || 0);
+  if(descuentoTxt === null) return;
+  const descuento_fijo = Math.max(0, Number(String(descuentoTxt).replace(",",".")) || 0);
+  const nuevo = {nombre:nombre.trim(), telefono:telefono.trim(), direccion:direccion.trim(), localidad:localidad.trim(), provincia:provincia.trim(), codigo_postal:String(codigo_postal).trim(), cuit:String(cuit).trim(), descuento_fijo};
+  if(!nuevo.nombre) return alert("El nombre no puede quedar vacío.");
+  if(sb && c.id){
+    let {error}=await sb.from("clientes").update(nuevo).eq("id", c.id);
+    if(error && String(error.message||"").includes("descuento_fijo")){
+      const {descuento_fijo, ...sinDescuento} = nuevo;
+      const r = await sb.from("clientes").update(sinDescuento).eq("id", c.id);
+      error = r.error;
+      if(!error) alert("Cliente modificado, pero no se pudo guardar el descuento fijo porque falta la columna descuento_fijo en Supabase.");
+    }
+    if(error) return alert("No se pudo modificar el cliente: "+error.message);
+    await cargarDesdeSupabase();
+  }else{
+    Object.assign(c,nuevo);
+  }
+  saveLocal(); renderAll();
+}
+
+async function eliminarCliente(id){
+  const c = clientes.find(x=>String(x.id)===String(id));
+  if(!c) return alert("No encontré el cliente.");
+  const tienePedidos = pedidos.some(p=>String(p.cliente_id)===String(c.id) || String(p.cliente||"").toLowerCase()===String(c.nombre||"").toLowerCase());
+  if(tienePedidos) return alert("Este cliente tiene pedidos asociados. No conviene eliminarlo porque se perdería la referencia del historial.");
+  if(!confirm(`¿Eliminar cliente ${c.nombre}?`)) return;
+  if(sb && c.id){
+    const {error}=await sb.from("clientes").delete().eq("id", c.id);
+    if(error) return alert("No se pudo eliminar: "+error.message);
+    await cargarDesdeSupabase();
+  }else{
+    clientes = clientes.filter(x=>String(x.id)!==String(id));
+  }
+  saveLocal(); renderAll();
 }
 
 function autocompletarCliente(){
   const lista = document.getElementById("clientesSugeridos");
   if(lista){
-    lista.innerHTML = clientes.map(c=>`<option value="${c.nombre}">${c.telefono||''}</option>`).join('');
+    lista.innerHTML = clientes.map(c=>`<option value="${escapeHtml(c.nombre)}">${escapeHtml(c.telefono||'')}${Number(c.descuento_fijo||0) ? ' · '+Number(c.descuento_fijo||0)+'% desc.' : ''}</option>`).join('');
   }
 
   const nombre = document.getElementById("pCliente").value.trim().toLowerCase();
   const encontrado = clientes.find(c=>String(c.nombre||'').toLowerCase()===nombre);
   if(encontrado){
     document.getElementById("pTelefono").value = encontrado.telefono || "";
+    const desc = Number(encontrado.descuento_fijo || 0);
+    const inp = document.getElementById("pDescuento");
+    const preset = document.getElementById("pDescuentoPreset");
+    if(inp){ inp.value = desc; }
+    if(preset){ preset.value = ["0","5","10","15","20"].includes(String(desc)) ? String(desc) : "manual"; }
+    renderPedidoActual();
   }
 }
 
@@ -2670,7 +2739,7 @@ async function verificarSupabase(){
   }
   box.innerHTML = "Verificando Supabase...";
   const checks = [
-    ["clientes",["id","nombre","telefono"]],
+    ["clientes",["id","nombre","telefono","descuento_fijo"]],
     ["vendedores",["id","nombre","porcentaje"]],
     ["productos",["sku","nombre","precio","comision_diferida"]],
     ["pedidos",["id","fecha","cliente_id","vendedor_id","total","subtotal","base_comision","porcentaje_comision","referido_nombre","referido_id","porcentaje_comision_diferida","base_comision_diferida","comision_diferida_importe"]],
