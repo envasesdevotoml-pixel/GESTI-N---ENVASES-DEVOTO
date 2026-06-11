@@ -1104,11 +1104,9 @@ async function guardarPedido(){
     delete cabeceraBasica.ajuste_importe;
     delete cabeceraBasica.base_comision;
     delete cabeceraBasica.porcentaje_comision;
-    delete cabeceraBasica.referido_nombre;
-    delete cabeceraBasica.referido_id;
-    delete cabeceraBasica.porcentaje_comision_diferida;
-    delete cabeceraBasica.base_comision_diferida;
-    delete cabeceraBasica.comision_diferida_importe;
+    // IMPORTANTE: no borrar campos de comisión diferida en el guardado alternativo.
+    // Antes se eliminaban acá y por eso el pedido calculaba bien la diferida,
+    // pero al guardar en Supabase quedaban vacíos referido_nombre / base / importe.
     delete cabeceraBasica.metodo_entrega;
     delete cabeceraBasica.metodo_pago;
     delete cabeceraBasica.usuario_nombre;
