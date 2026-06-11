@@ -217,6 +217,9 @@
     .estado-cobrado{background:#f3e8ff;color:#6b21a8;border-color:#d8b4fe}
     .estado-cancelado{background:#ffe8e8;color:#d1242f;border-color:#ffb3b3}
     .edit-alert{background:#eef4ff;border:1px solid #cfe0ff;border-radius:12px;padding:12px;margin-bottom:14px;font-weight:800}
+    .client-note-box{display:none;background:#fff7cc;border:1px solid #f0df8a;border-radius:12px;padding:12px;margin:10px 0;font-weight:700;color:#5f4700}
+    .history-list{display:grid;gap:8px}
+    .history-item{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
 
 
 
@@ -404,6 +407,7 @@
           <input id="pComisionDiferidaPct" type="number" min="0" step="0.01" value="5" oninput="renderPedidoActual()" placeholder="% comisión diferida">
         </div>
         <textarea id="pObservaciones" placeholder="Observaciones del pedido"></textarea>
+        <div id="pNotaInternaCliente" class="client-note-box"></div>
         <h2 style="margin-top:18px">Agregar producto</h2>
         <div class="quick-box">
           <input id="quickProduct" list="productosSugeridos" placeholder="SKU, código de barras o nombre del producto" oninput="actualizarSugerenciasProductos()" onkeydown="if(event.key==='Enter') addQuickProduct()">
@@ -482,6 +486,8 @@
       <h1>Pedidos</h1>
       <div class="toolbar">
         <input id="buscarPedidos" placeholder="Buscar pedidos..." oninput="renderPedidos()">
+        <input id="filtroPedidosMes" type="month" onchange="renderPedidos()" title="Filtrar por mes">
+        <button class="btn secondary" onclick="document.getElementById('filtroPedidosMes').value='';renderPedidos()">Todos los meses</button>
       </div>
       <div id="tablaPedidos"></div>
     </section>
@@ -515,6 +521,7 @@
           <input id="cCodigoPostal" placeholder="Código postal">
           <input id="cCuit" placeholder="CUIT">
           <input id="cDescuentoFijo" type="number" min="0" step="0.01" placeholder="Descuento fijo %">
+          <textarea id="cNotaInterna" placeholder="Nota interna del cliente (solo administración)" style="grid-column:1/-1"></textarea>
           <button class="btn" onclick="agregarCliente()">Agregar cliente</button>
         </div>
         <div class="small" style="margin-top:10px">Los datos extra son opcionales y se usan para el remito.</div>
@@ -721,6 +728,7 @@ let clientes = JSON.parse(localStorage.getItem("ed_clientes") || "[]");
 let pedidos = JSON.parse(localStorage.getItem("ed_pedidos") || "[]");
 let comisionesPagas = JSON.parse(localStorage.getItem("ed_comisiones_pagas") || "{}");
 let comisionesPagosManual = JSON.parse(localStorage.getItem("ed_comisiones_pagos_manual") || "{}");
+let historialPedidos = JSON.parse(localStorage.getItem("ed_historial_pedidos") || "{}");
 let pedidoActual = [];
 let pedidoEditandoId = null;
 let sb = null;
@@ -733,6 +741,7 @@ function saveLocal(){
   localStorage.setItem("ed_pedidos",JSON.stringify(pedidos));
   localStorage.setItem("ed_comisiones_pagas",JSON.stringify(comisionesPagas));
   localStorage.setItem("ed_comisiones_pagos_manual",JSON.stringify(comisionesPagosManual));
+  localStorage.setItem("ed_historial_pedidos",JSON.stringify(historialPedidos));
 }
 function init(){
   cargarSesion();
@@ -1058,6 +1067,7 @@ async function guardarPedido(){
 
   const totales = recalcularTotalesPedido();
   const total = totales.total;
+  const pedidoAnterior = pedidoEditandoId ? JSON.parse(JSON.stringify(pedidos.find(p=>String(p.id)===String(pedidoEditandoId)) || null)) : null;
   let pedidoGuardado = null;
 
   if(sb){
@@ -1218,6 +1228,7 @@ async function guardarPedido(){
   }
 
   const estabaEditando = !!pedidoEditandoId;
+  registrarHistorialPedido(pedido.id, estabaEditando ? "Pedido actualizado" : "Pedido creado", resumenCambiosPedido(pedidoAnterior, pedido));
   saveLocal();
   alert(estabaEditando ? "Pedido actualizado." : "Pedido guardado.");
   limpiarPedido();
@@ -1229,6 +1240,7 @@ function limpiarPedido(){
   pedidoActual=[];
   pedidoEditandoId = null;
   ["pCliente","pTelefono","pObservaciones","quickProduct"].forEach(id=>document.getElementById(id).value='');
+  const notaCliente = document.getElementById("pNotaInternaCliente"); if(notaCliente){ notaCliente.style.display="none"; notaCliente.innerHTML=""; }
   const ent = document.getElementById("pMetodoEntrega"); if(ent) ent.value = "";
   const pag = document.getElementById("pMetodoPago"); if(pag) pag.value = "";
   const ref = document.getElementById("pReferido"); if(ref) ref.value = "";
@@ -1250,6 +1262,48 @@ function escapeHtml(v){
 }
 function fechaAR(v){
   try{return new Date(v || Date.now()).toLocaleString("es-AR");}catch(e){return "";}
+}
+function usuarioActualNombre(){
+  return currentUser ? (currentUser.nombre || currentUser.usuario || "Usuario") : "Sistema";
+}
+function registrarHistorialPedido(id, accion, detalle){
+  if(!id) return;
+  const key = String(id);
+  if(!historialPedidos[key]) historialPedidos[key] = [];
+  historialPedidos[key].unshift({
+    fecha:new Date().toISOString(),
+    usuario:usuarioActualNombre(),
+    accion:accion || "Actualización",
+    detalle:detalle || ""
+  });
+  historialPedidos[key] = historialPedidos[key].slice(0,80);
+  saveLocal();
+}
+function resumenCambiosPedido(anterior, nuevo){
+  if(!anterior) return "Pedido creado.";
+  const cambios=[];
+  const campos=[
+    ["cliente","cliente"],["telefono","teléfono"],["vendedor","vendedor"],["estado","estado"],
+    ["observaciones","observaciones"],["total","total"],["descuento_porcentaje","descuento"],["ajuste_porcentaje","ajuste"]
+  ];
+  campos.forEach(([k,label])=>{
+    const a = anterior[k] ?? "";
+    const b = nuevo[k] ?? "";
+    if(String(a)!==String(b)) cambios.push(`${label}: ${a || "-"} → ${b || "-"}`);
+  });
+  const cantA=(anterior.lineas||[]).reduce((a,l)=>a+Number(l.cantidad||0),0);
+  const cantB=(nuevo.lineas||[]).reduce((a,l)=>a+Number(l.cantidad||0),0);
+  if(cantA!==cantB || (anterior.lineas||[]).length !== (nuevo.lineas||[]).length) cambios.push(`productos/cantidades modificados`);
+  return cambios.length ? cambios.join(" | ") : "Se guardó sin cambios importantes.";
+}
+function verHistorialPedido(id){
+  const p = pedidos.find(x=>String(x.id)===String(id));
+  const items = historialPedidos[String(id)] || [];
+  const html = items.length ? `<div class="history-list">${items.map(h=>`<div class="history-item"><b>${escapeHtml(fechaAR(h.fecha))}</b> · ${escapeHtml(h.usuario||"")}<br><span class="badge">${escapeHtml(h.accion||"")}</span><div class="small" style="margin-top:6px">${escapeHtml(h.detalle||"")}</div></div>`).join("")}</div>` : "Sin historial registrado todavía.";
+  const w = window.open("", "_blank");
+  if(!w) return alert("El navegador bloqueó la ventana del historial.");
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Historial pedido ${escapeHtml(id)}</title><style>body{font-family:Arial;padding:20px;background:#f6f9fd;color:#0f172a}.card{background:white;border:1px solid #dbe4ef;border-radius:16px;padding:16px;margin-bottom:12px}.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef4ff;color:#2094e6;font-weight:800;font-size:12px}.small{color:#64748b}.history-list{display:grid;gap:8px}.history-item{border:1px solid #dbe4ef;border-radius:12px;padding:10px;background:#fff}</style></head><body><div class="card"><h2>Historial del pedido #${escapeHtml(id)}</h2><p><b>Cliente:</b> ${escapeHtml(p?.cliente||"")}</p></div>${html}</body></html>`);
+  w.document.close();
 }
 function clienteDePedido(p){
   if(!p) return {};
@@ -1587,7 +1641,7 @@ function renderPedidoTable(data){
     (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+"%" : "-"),
     (Number(p.ajuste_porcentaje||0) ? Number(p.ajuste_porcentaje||0)+"%" : "-"),
     money(p.total),
-    `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='exportarPedidoExcel(${JSON.stringify(p.id)})'>Remito</button> ${currentUser?.rol === "admin" ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ""}`
+    `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button> <button class="btn secondary" onclick='exportarPedidoExcel(${JSON.stringify(p.id)})'>Remito</button> ${currentUser?.rol === "admin" ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ""}`
   ]));
 }
 
@@ -1622,7 +1676,9 @@ async function eliminarPedidoConPassword(id){
 
 async function actualizarEstadoPedido(id, estado){
   const pedido = pedidos.find(p=>p.id==id);
+  const estadoAnterior = pedido ? pedido.estado : "";
   if(pedido) pedido.estado = estado;
+  if(String(estadoAnterior)!==String(estado)) registrarHistorialPedido(id, "Cambio de estado", `${estadoAnterior || "-"} → ${estado}`);
 
   if(sb){
     const {error} = await sb.from("pedidos").update({estado}).eq("id", id);
@@ -1701,7 +1757,12 @@ async function exportarPedidoExcel(id){
 
 function renderPedidos(){
   const q=(document.getElementById("buscarPedidos")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
-  const data=pedidos.filter(p=>JSON.stringify(p).toLowerCase().includes(q));
+  const mes = document.getElementById("filtroPedidosMes")?.value || "";
+  const data=pedidos.filter(p=>{
+    const coincideTexto = JSON.stringify(p).toLowerCase().includes(q);
+    const coincideMes = !mes || mesDeFecha(p.fecha) === mes;
+    return coincideTexto && coincideMes;
+  });
   document.getElementById("tablaPedidos").innerHTML=renderPedidoTable(data);
 }
 
@@ -1865,7 +1926,8 @@ async function agregarCliente(){
     provincia:document.getElementById("cProvincia").value.trim(),
     codigo_postal:document.getElementById("cCodigoPostal").value.trim(),
     cuit:document.getElementById("cCuit").value.trim(),
-    descuento_fijo:descuentoFijo
+    descuento_fijo:descuentoFijo,
+    nota_interna:document.getElementById("cNotaInterna")?.value.trim() || ""
   };
   if(!c.nombre) return alert("Falta nombre.");
   if(sb){
@@ -1881,11 +1943,11 @@ async function agregarCliente(){
     await cargarDesdeSupabase();
   }
   else clientes.push(c);
-  ["cNombre","cTelefono","cDireccion","cLocalidad","cProvincia","cCodigoPostal","cCuit","cDescuentoFijo"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
+  ["cNombre","cTelefono","cDireccion","cLocalidad","cProvincia","cCodigoPostal","cCuit","cDescuentoFijo","cNotaInterna"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
   saveLocal(); renderAll();
 }
 function renderClientes(){
-  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT","Desc. fijo","Acciones"],clientes.map(c=>[
+  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT","Desc. fijo","Nota interna","Acciones"],clientes.map(c=>[
     escapeHtml(c.nombre),
     escapeHtml(c.telefono||''),
     escapeHtml(c.direccion||''),
@@ -1894,6 +1956,7 @@ function renderClientes(){
     escapeHtml(c.codigo_postal||c.cp||''),
     escapeHtml(c.cuit||''),
     (Number(c.descuento_fijo||0) ? Number(c.descuento_fijo||0)+"%" : "-"),
+    c.nota_interna ? `<span class="badge yellow">Con nota</span><div class="small">${escapeHtml(c.nota_interna)}</div>` : "-",
     `<button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button> <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar</button> <button class="btn danger" onclick="eliminarCliente(${JSON.stringify(c.id)})">Eliminar</button>`
   ]));
 }
@@ -1918,15 +1981,17 @@ async function editarCliente(id){
   const descuentoTxt = prompt("Descuento fijo % para este cliente", c.descuento_fijo || 0);
   if(descuentoTxt === null) return;
   const descuento_fijo = Math.max(0, Number(String(descuentoTxt).replace(",",".")) || 0);
-  const nuevo = {nombre:nombre.trim(), telefono:telefono.trim(), direccion:direccion.trim(), localidad:localidad.trim(), provincia:provincia.trim(), codigo_postal:String(codigo_postal).trim(), cuit:String(cuit).trim(), descuento_fijo};
+  const nota_interna = prompt("Nota interna del cliente (solo administración)", c.nota_interna || "");
+  if(nota_interna === null) return;
+  const nuevo = {nombre:nombre.trim(), telefono:telefono.trim(), direccion:direccion.trim(), localidad:localidad.trim(), provincia:provincia.trim(), codigo_postal:String(codigo_postal).trim(), cuit:String(cuit).trim(), descuento_fijo, nota_interna:String(nota_interna).trim()};
   if(!nuevo.nombre) return alert("El nombre no puede quedar vacío.");
   if(sb && c.id){
     let {error}=await sb.from("clientes").update(nuevo).eq("id", c.id);
-    if(error && String(error.message||"").includes("descuento_fijo")){
-      const {descuento_fijo, ...sinDescuento} = nuevo;
-      const r = await sb.from("clientes").update(sinDescuento).eq("id", c.id);
+    if(error){
+      const {descuento_fijo, nota_interna, ...sinExtras} = nuevo;
+      const r = await sb.from("clientes").update(sinExtras).eq("id", c.id);
       error = r.error;
-      if(!error) alert("Cliente modificado, pero no se pudo guardar el descuento fijo porque falta la columna descuento_fijo en Supabase.");
+      if(!error) alert("Cliente modificado, pero Supabase todavía no tiene columna descuento_fijo y/o nota_interna para guardar esos datos online.");
     }
     if(error) return alert("No se pudo modificar el cliente: "+error.message);
     await cargarDesdeSupabase();
@@ -2004,6 +2069,11 @@ function autocompletarCliente(){
     const preset = document.getElementById("pDescuentoPreset");
     if(inp){ inp.value = desc; }
     if(preset){ preset.value = ["0","5","10","15","20"].includes(String(desc)) ? String(desc) : "manual"; }
+    const notaBox = document.getElementById("pNotaInternaCliente");
+    if(notaBox){
+      if(encontrado.nota_interna){ notaBox.style.display = "block"; notaBox.innerHTML = "📝 Nota interna del cliente: " + escapeHtml(encontrado.nota_interna); }
+      else { notaBox.style.display = "none"; notaBox.innerHTML = ""; }
+    }
     renderPedidoActual();
   }
 }
@@ -3066,7 +3136,7 @@ function renderPedidoTable(data){
     (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+'%' : '-'),
     (Number(p.ajuste_porcentaje||0) ? Number(p.ajuste_porcentaje||0)+'%' : '-'),
     money(p.total),
-    `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='exportarPedidoExcel(${JSON.stringify(p.id)})'>Remito completo</button> <button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> ${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}`
+    `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='exportarPedidoExcel(${JSON.stringify(p.id)})'>Remito completo</button> <button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button> ${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}`
   ]));
 }
 
