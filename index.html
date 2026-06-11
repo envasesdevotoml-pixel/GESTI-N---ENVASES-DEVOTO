@@ -2561,12 +2561,17 @@ function renderComisiones(){
   const filas = Object.values(porPedido).map(({normal:n, dif:d})=>{
     const c = n || d; // al menos uno existe siempre
     const estadoBadge = est => est==="Pagada" ? '<span class="badge green">Pagada</span>' : (est==="Parcial" ? '<span class="badge purple">Parcial</span>' : '<span class="badge yellow">Pendiente</span>');
-    const accionBtn = (com) => com ? `<div style="display:flex;gap:5px;flex-wrap:wrap">
-      <button class="btn success" style="font-size:12px;padding:7px 10px" onclick="registrarPagoComisionManual(${JSON.stringify(com.comision_key||com.pedido_id)})">Registrar pago</button>
-      <button class="btn secondary" style="font-size:12px;padding:7px 10px" onclick="marcarComisionPagada(${JSON.stringify(com.comision_key||com.pedido_id)})">Pagar saldo</button>
-      <button class="btn secondary" style="font-size:12px;padding:7px 10px" onclick="verPagosComision(${JSON.stringify(com.comision_key||com.pedido_id)})">Ver pagos</button>
-      ${com.pagado>0||com.estado==="Pagada" ? `<button class="btn danger" style="font-size:12px;padding:7px 10px" onclick="marcarComisionPendiente(${JSON.stringify(com.comision_key||com.pedido_id)})">Reset</button>` : ""}
-    </div>` : '-';
+    const accionBtn = (com) => {
+      if(!com) return '-';
+      const key = String(com.comision_key || com.pedido_id || '');
+      const keyAttr = key.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<div style="display:flex;gap:5px;flex-wrap:wrap">
+        <button type="button" class="btn success" style="font-size:12px;padding:7px 10px" data-com-accion="registrar" data-com-key="${keyAttr}">Registrar pago</button>
+        <button type="button" class="btn secondary" style="font-size:12px;padding:7px 10px" data-com-accion="saldo" data-com-key="${keyAttr}">Pagar saldo</button>
+        <button type="button" class="btn secondary" style="font-size:12px;padding:7px 10px" data-com-accion="ver" data-com-key="${keyAttr}">Ver pagos</button>
+        ${com.pagado>0||com.estado==="Pagada" ? `<button type="button" class="btn danger" style="font-size:12px;padding:7px 10px" data-com-accion="reset" data-com-key="${keyAttr}">Reset</button>` : ""}
+      </div>`;
+    };
 
     // Columna diferida — solo si existe
     const difCol = d ? `
@@ -3363,6 +3368,32 @@ async function verPreparacion(id){
     ${table(['Check','SKU','Producto','Cantidad'], lineas.map(l=>['☐', l.sku || '', l.producto || l.nombre || '', l.cantidad || '']))}
   `;
 }
+
+// Delegación segura para botones de comisión.
+// Evita que los botones generados dentro de la tabla dependan de onclick inline.
+document.addEventListener('click', async function(e){
+  const btn = e.target.closest('[data-com-accion]');
+  if(!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const key = btn.getAttribute('data-com-key');
+  const accion = btn.getAttribute('data-com-accion');
+  try{
+    if(accion === 'registrar') await registrarPagoComisionManual(key);
+    else if(accion === 'saldo') await marcarComisionPagada(key);
+    else if(accion === 'ver') verPagosComision(key);
+    else if(accion === 'reset') await marcarComisionPendiente(key);
+  }catch(err){
+    console.error('Error en botón de comisión:', err);
+    toast('No se pudo ejecutar la acción de comisión: ' + (err.message || err), 'error');
+  }
+});
+
+// Alias globales por compatibilidad con versiones anteriores que usaban onclick.
+window.registrarPagoComisionManual = registrarPagoComisionManual;
+window.marcarComisionPagada = marcarComisionPagada;
+window.verPagosComision = verPagosComision;
+window.marcarComisionPendiente = marcarComisionPendiente;
 
 init();
 </script>
