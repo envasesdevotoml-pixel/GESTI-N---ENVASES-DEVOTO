@@ -418,8 +418,9 @@ function toast(msg, tipo='', duracion=3500){
         </div>
         <div class="two">
           <div class="card"><h2>Top vendedores</h2><div id="dashTopVendedores"></div></div>
-          <div class="card"><h2>Top productos</h2><div id="dashTopProductos"></div></div>
+          <div class="card"><h2>Top clientes</h2><div id="dashTopClientes"></div></div>
         </div>
+        <div class="card"><h2>Top productos</h2><div id="dashTopProductos"></div></div>
       </div>
 
       <div class="card">
@@ -545,10 +546,14 @@ function toast(msg, tipo='', duracion=3500){
     <section id="pedidos" class="section">
       <h1>Pedidos</h1>
       <div class="toolbar">
-        <input id="buscarPedidos" placeholder="Buscar pedidos..." oninput="renderPedidos()">
+        <button class="btn secondary" id="btnPedidosTodos" onclick="setModoPedidos('todos')">Todos los pedidos</button>
+        <button class="btn secondary" id="btnPedidosCliente" onclick="setModoPedidos('cliente')">Historial por cliente</button>
+        <input id="buscarPedidos" placeholder="Buscar pedidos o cliente..." oninput="renderPedidos()">
         <input id="filtroPedidosMes" type="month" onchange="renderPedidos()" title="Filtrar por mes">
         <button class="btn secondary" onclick="document.getElementById('filtroPedidosMes').value='';renderPedidos()">Todos los meses</button>
+        <select id="filtroPedidosCliente" style="display:none" onchange="renderPedidos()"></select>
       </div>
+      <div id="resumenClientePedidos"></div>
       <div id="tablaPedidos"></div>
     </section>
 
@@ -1674,6 +1679,22 @@ function renderDashboard(){
   const topVEl = document.getElementById("dashTopVendedores");
   if(topVEl) topVEl.innerHTML = table(["Vendedor","Pedidos","Ventas"], topV.map(x=>[x.nombre,x.pedidos,money(x.total)]));
 
+  const porCliente = {};
+  pedidosPeriodo.forEach(p=>{
+    const nombre = clienteNombrePedido(p);
+    if(!porCliente[nombre]) porCliente[nombre] = {pedidos:0,total:0,ultima:""};
+    porCliente[nombre].pedidos += 1;
+    porCliente[nombre].total += Number(p.total||0);
+    const f = fechaYMD(p.fecha);
+    if(f && (!porCliente[nombre].ultima || f > porCliente[nombre].ultima)) porCliente[nombre].ultima = f;
+  });
+  const topC = Object.entries(porCliente)
+    .map(([nombre,x])=>({nombre,...x,ticket:x.pedidos ? x.total/x.pedidos : 0}))
+    .sort((a,b)=>b.total-a.total)
+    .slice(0,8);
+  const topCEl = document.getElementById("dashTopClientes");
+  if(topCEl) topCEl.innerHTML = table(["Cliente","Pedidos","Total comprado","Ticket prom.","Última compra"], topC.map(x=>[x.nombre,x.pedidos,money(x.total),money(x.ticket),x.ultima ? new Date(x.ultima+'T00:00:00').toLocaleDateString('es-AR') : '-']));
+
   const porProducto = {};
   pedidosPeriodo.forEach(p=>{
     (p.lineas||[]).forEach(l=>{
@@ -1901,18 +1922,102 @@ async function abrirRemito(id){
   abrirDocumentoImprimible("Remito", documentoRemito(pedido, lineas));
 }
 
+let modoPedidosVista = localStorage.getItem("ed_modo_pedidos") || "todos";
+
+function clienteNombrePedido(p){
+  return String(p?.cliente || "Sin cliente").trim() || "Sin cliente";
+}
+
+function setModoPedidos(modo){
+  modoPedidosVista = modo === "cliente" ? "cliente" : "todos";
+  localStorage.setItem("ed_modo_pedidos", modoPedidosVista);
+  renderPedidos();
+}
+
+function opcionesClientesPedidos(){
+  const map = new Map();
+  pedidos.forEach(p=>{
+    const nombre = clienteNombrePedido(p);
+    const key = nombre.toLowerCase();
+    if(!map.has(key)) map.set(key, nombre);
+  });
+  return Array.from(map.values()).sort((a,b)=>a.localeCompare(b,'es'));
+}
+
+function actualizarSelectorClientesPedidos(){
+  const sel = document.getElementById("filtroPedidosCliente");
+  if(!sel) return;
+  const actual = sel.value;
+  const clientes = opcionesClientesPedidos();
+  sel.innerHTML = `<option value="">Todos los clientes</option>` + clientes.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  if(clientes.includes(actual)) sel.value = actual;
+}
+
+function resumenClienteHTML(cliente, data){
+  if(!cliente || !data.length) return "";
+  const total = data.reduce((a,p)=>a+Number(p.total||0),0);
+  const ticket = data.length ? total / data.length : 0;
+  const ultima = data.map(p=>fechaYMD(p.fecha)).filter(Boolean).sort().pop();
+  const porProducto = {};
+  data.forEach(p=>{
+    (p.lineas||[]).forEach(l=>{
+      const nombre = l.nombre || l.producto || l.sku || "Producto";
+      if(!porProducto[nombre]) porProducto[nombre] = {cantidad:0,total:0};
+      porProducto[nombre].cantidad += Number(l.cantidad||0);
+      porProducto[nombre].total += Number(l.subtotal||0);
+    });
+  });
+  const topProductos = Object.entries(porProducto).map(([nombre,x])=>({nombre,...x})).sort((a,b)=>b.total-a.total).slice(0,5);
+  return `
+    <div class="card">
+      <h2>Historial de ${escapeHtml(cliente)}</h2>
+      <div class="grid">
+        <div class="card"><div class="metric-title">Pedidos</div><div class="metric-value">${data.length}</div></div>
+        <div class="card"><div class="metric-title">Total comprado</div><div class="metric-value">${money(total)}</div></div>
+        <div class="card"><div class="metric-title">Ticket promedio</div><div class="metric-value">${money(ticket)}</div></div>
+        <div class="card"><div class="metric-title">Última compra</div><div class="metric-value" style="font-size:22px">${ultima ? new Date(ultima+'T00:00:00').toLocaleDateString('es-AR') : '-'}</div></div>
+      </div>
+      <h2 style="margin-top:10px">Productos más comprados</h2>
+      ${topProductos.length ? table(["Producto","Cantidad","Ventas"], topProductos.map(x=>[x.nombre,x.cantidad,money(x.total)])) : '<div class="empty">Sin productos para mostrar.</div>'}
+    </div>`;
+}
+
 function renderPedidos(){
+  actualizarSelectorClientesPedidos();
   const q=(document.getElementById("buscarPedidos")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
   const mes = document.getElementById("filtroPedidosMes")?.value || "";
-  const data=pedidos.filter(p=>{
-    // Búsqueda solo en campos relevantes — evita JSON.stringify de todo el objeto
+  const selCliente = document.getElementById("filtroPedidosCliente");
+  const clienteElegido = selCliente?.value || "";
+  const esCliente = modoPedidosVista === "cliente";
+  if(selCliente) selCliente.style.display = esCliente ? "" : "none";
+  const btnTodos = document.getElementById("btnPedidosTodos");
+  const btnCliente = document.getElementById("btnPedidosCliente");
+  if(btnTodos) btnTodos.className = "btn " + (!esCliente ? "success" : "secondary");
+  if(btnCliente) btnCliente.className = "btn " + (esCliente ? "success" : "secondary");
+
+  let data=pedidos.filter(p=>{
+    const cliente = clienteNombrePedido(p);
     const coincideTexto = !q || [
-      String(p.id||''), p.cliente||'', p.vendedor||'',
+      String(p.id||''), cliente, p.vendedor||'',
       p.estado||'', p.usuario_nombre||'', p.telefono||''
-    ].some(v=>v.toLowerCase().includes(q));
+    ].some(v=>String(v).toLowerCase().includes(q));
     const coincideMes = !mes || mesDeFecha(p.fecha) === mes;
-    return coincideTexto && coincideMes;
+    const coincideCliente = !esCliente || !clienteElegido || cliente.toLowerCase() === clienteElegido.toLowerCase();
+    return coincideTexto && coincideMes && coincideCliente;
   });
+
+  data.sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+
+  const resumen = document.getElementById("resumenClientePedidos");
+  if(resumen){
+    if(esCliente){
+      const clienteResumen = clienteElegido || (q ? "resultado filtrado" : "todos los clientes");
+      resumen.innerHTML = resumenClienteHTML(clienteResumen, data);
+    }else{
+      resumen.innerHTML = "";
+    }
+  }
+
   document.getElementById("tablaPedidos").innerHTML=renderPedidoTable(data);
 }
 
