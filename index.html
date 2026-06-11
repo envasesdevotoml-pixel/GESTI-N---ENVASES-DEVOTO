@@ -1661,22 +1661,26 @@ async function editarPedido(id){
     comision_diferida: !!(l.comision_diferida || productos.find(p=>p.sku===(l.sku||""))?.comision_diferida)
   }));
 
+  // Navegar primero (renderAll reconstruye el DOM)
+  const navBtn = Array.from(document.querySelectorAll(".nav button")).find(b=>b.textContent.includes("Cargar pedido"));
+  go("nuevoPedido", navBtn || null);
+
+  // Restaurar campos del formulario DESPUÉS de que go() terminó de renderizar
   document.getElementById("pCliente").value = pedido.cliente || "";
   document.getElementById("pTelefono").value = pedido.telefono || "";
   document.getElementById("pEstado").value = pedido.estado || "Pendiente";
   document.getElementById("pObservaciones").value = pedido.observaciones || "";
-  const ent = document.getElementById("pMetodoEntrega"); if(ent) ent.value = pedido.metodo_entrega || "";
-  const pag = document.getElementById("pMetodoPago"); if(pag) pag.value = pedido.metodo_pago || "";
-  const desc = document.getElementById("pDescuento"); if(desc) desc.value = Number(pedido.descuento_porcentaje || 0);
-  const aj = document.getElementById("pAjuste"); if(aj) aj.value = Number(pedido.ajuste_porcentaje || 0);
-  const descPreset = document.getElementById("pDescuentoPreset"); if(descPreset) descPreset.value = ["0","5","10","15","20"].includes(String(pedido.descuento_porcentaje || 0)) ? String(pedido.descuento_porcentaje || 0) : "manual";
-  const ajPreset = document.getElementById("pAjustePreset"); if(ajPreset) ajPreset.value = ["0","4","10.5","21"].includes(String(pedido.ajuste_porcentaje || 0)) ? String(pedido.ajuste_porcentaje || 0) : "manual";
-
-  const vendedorIndex = vendedores.findIndex(v=>v.id==pedido.vendedor_id || v.nombre==pedido.vendedor);
-  document.getElementById("pVendedor").value = vendedorIndex >= 0 ? vendedorIndex : "";
-  const referidoIndex = vendedores.findIndex(v=>v.id==pedido.referido_id || v.nombre==pedido.referido_nombre);
-  const refSel = document.getElementById("pReferido"); if(refSel) refSel.value = referidoIndex >= 0 ? referidoIndex : "";
-  const pctDif = document.getElementById("pComisionDiferidaPct"); if(pctDif) pctDif.value = Number(pedido.porcentaje_comision_diferida || 5);
+  const ent2 = document.getElementById("pMetodoEntrega"); if(ent2) ent2.value = pedido.metodo_entrega || "";
+  const pag2 = document.getElementById("pMetodoPago"); if(pag2) pag2.value = pedido.metodo_pago || "";
+  const desc2 = document.getElementById("pDescuento"); if(desc2) desc2.value = Number(pedido.descuento_porcentaje || 0);
+  const aj2 = document.getElementById("pAjuste"); if(aj2) aj2.value = Number(pedido.ajuste_porcentaje || 0);
+  const descPreset2 = document.getElementById("pDescuentoPreset"); if(descPreset2) descPreset2.value = ["0","5","10","15","20"].includes(String(pedido.descuento_porcentaje || 0)) ? String(pedido.descuento_porcentaje || 0) : "manual";
+  const ajPreset2 = document.getElementById("pAjustePreset"); if(ajPreset2) ajPreset2.value = ["0","4","10.5","21"].includes(String(pedido.ajuste_porcentaje || 0)) ? String(pedido.ajuste_porcentaje || 0) : "manual";
+  const vendedorIndex2 = vendedores.findIndex(v=>v.id==pedido.vendedor_id || v.nombre==pedido.vendedor);
+  document.getElementById("pVendedor").value = vendedorIndex2 >= 0 ? vendedorIndex2 : "";
+  const referidoIndex2 = vendedores.findIndex(v=>v.id==pedido.referido_id || v.nombre==pedido.referido_nombre);
+  const refSel2 = document.getElementById("pReferido"); if(refSel2) refSel2.value = referidoIndex2 >= 0 ? referidoIndex2 : "";
+  const pctDif2 = document.getElementById("pComisionDiferidaPct"); if(pctDif2) pctDif2.value = Number(pedido.porcentaje_comision_diferida || 5);
 
   renderPedidoActual();
 
@@ -1692,9 +1696,6 @@ async function editarPedido(id){
 
   const btn = document.getElementById("btnGuardarPedido");
   if(btn) btn.innerText = "Guardar cambios";
-
-  const navBtn = Array.from(document.querySelectorAll(".nav button")).find(b=>b.textContent.includes("Cargar pedido"));
-  go("nuevoPedido", navBtn || null);
 }
 
 function renderPedidoTable(data){
@@ -2207,9 +2208,18 @@ async function agregarVendedor(){
   saveLocal(); renderAll();
 }
 function renderVendedores(){
-  document.getElementById("pVendedor").innerHTML='<option value="">Seleccionar vendedor</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
-  const ref = document.getElementById("pReferido");
-  if(ref) ref.innerHTML='<option value="">Referido / comisión diferida: Ninguno</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
+  // Preservar valores actuales antes de reconstruir los selects
+  const selVend = document.getElementById("pVendedor");
+  const selRef  = document.getElementById("pReferido");
+  const prevVendedor = selVend ? selVend.value : "";
+  const prevReferido = selRef  ? selRef.value  : "";
+
+  selVend.innerHTML='<option value="">Seleccionar vendedor</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
+  if(selRef) selRef.innerHTML='<option value="">Referido / comisión diferida: Ninguno</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
+
+  // Restaurar valores si existían
+  if(prevVendedor !== "") selVend.value = prevVendedor;
+  if(selRef && prevReferido !== "") selRef.value = prevReferido;
   document.getElementById("tablaVendedores").innerHTML=table(
     ["Nombre","Teléfono","Comisión","Activo","Acciones"],
     vendedores.map(v=>[
@@ -2951,7 +2961,20 @@ async function verificarSupabase(){
   `;
 }
 function renderAll(){
-  actualizarSugerenciasClientes();actualizarSugerenciasProductos();renderDashboard();renderPedidoActual();renderPedidos();renderPreparacion();renderProductos();renderClientes();renderVendedores();renderComisiones();renderUsuarios();aplicarPermisosUsuario();
+  actualizarSugerenciasClientes();
+  actualizarSugerenciasProductos();
+  renderDashboard();
+  renderPedidos();
+  renderPreparacion();
+  renderProductos();
+  renderClientes();
+  renderVendedores();   // ya preserva pVendedor y pReferido
+  renderComisiones();
+  renderUsuarios();
+  aplicarPermisosUsuario();
+  // renderPedidoActual() se llama siempre — solo recalcula totales de la tabla de líneas,
+  // no toca los campos del formulario (cliente, vendedor, etc.)
+  renderPedidoActual();
 }
 
 
