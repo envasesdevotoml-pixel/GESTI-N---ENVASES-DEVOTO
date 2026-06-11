@@ -393,20 +393,28 @@ function toast(msg, tipo='', duracion=3500){
       <div class="card">
         <div class="toolbar" style="justify-content:space-between">
           <div>
-            <h2 style="margin-bottom:6px">Análisis mensual</h2>
-            <div class="small">Para que puedan ver rápido cuánto se vendió por mes, qué vendedor vendió más y qué productos salieron más.</div>
+            <h2 id="dashAnalisisTitulo" style="margin-bottom:6px">Análisis mensual</h2>
+            <div class="small" id="dashAnalisisSubtitulo">Para ver rápido ventas, vendedores, productos y comisiones por período.</div>
           </div>
           <div class="toolbar">
+            <select id="dashPeriodo" onchange="actualizarControlesDashboard(); renderDashboard()">
+              <option value="mensual">Mensual</option>
+              <option value="general">General</option>
+              <option value="anual">Anual</option>
+              <option value="dia">Día</option>
+            </select>
             <input id="dashMes" type="month" onchange="renderDashboard()">
-            <button class="btn secondary" onclick="setDashMesActual()">Mes actual</button>
+            <input id="dashAnio" type="number" min="2020" max="2100" step="1" style="display:none;width:120px" onchange="renderDashboard()" placeholder="Año">
+            <input id="dashDia" type="date" style="display:none" onchange="renderDashboard()">
+            <button class="btn secondary" onclick="setDashPeriodoActual()">Período actual</button>
             <button class="btn success" onclick="exportarPedidosExcel()">Exportar pedidos a Excel</button>
           </div>
         </div>
         <div class="grid">
-          <div class="card"><div class="metric-title">Ventas del mes</div><div class="metric-value" id="mVentasMes">$0</div></div>
-          <div class="card"><div class="metric-title">Pedidos del mes</div><div class="metric-value" id="mPedidosMes">0</div></div>
+          <div class="card"><div class="metric-title" id="lblVentasPeriodo">Ventas del período</div><div class="metric-value" id="mVentasMes">$0</div></div>
+          <div class="card"><div class="metric-title" id="lblPedidosPeriodo">Pedidos del período</div><div class="metric-value" id="mPedidosMes">0</div></div>
           <div class="card"><div class="metric-title">Ticket promedio</div><div class="metric-value" id="mTicketMes">$0</div></div>
-          <div class="card"><div class="metric-title">Comisiones pendientes del mes</div><div class="metric-value" id="mComisionesMes">$0</div></div>
+          <div class="card"><div class="metric-title" id="lblComisionesPeriodo">Comisiones pendientes del período</div><div class="metric-value" id="mComisionesMes">$0</div></div>
         </div>
         <div class="two">
           <div class="card"><h2>Top vendedores</h2><div id="dashTopVendedores"></div></div>
@@ -625,6 +633,15 @@ function toast(msg, tipo='', duracion=3500){
       <div class="card">
         <h2>Detalle por pedido</h2>
         <div id="tablaComisiones"></div>
+      </div>
+      <div class="card">
+        <div class="toolbar" style="justify-content:space-between">
+          <div>
+            <h2 style="margin-bottom:6px">Historial de movimientos</h2>
+            <div class="small">Registro de pagos de comisiones con fecha, vendedor, pedido, usuario y descripción.</div>
+          </div>
+        </div>
+        <div id="tablaHistorialComisiones"></div>
       </div>
     </section>
 
@@ -1543,22 +1560,75 @@ function mesDeFecha(v){
   if(isNaN(d)) return "";
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
-function setDashMesActual(){
-  const el = document.getElementById("dashMes");
-  if(el) el.value = periodoMesActual();
+function fechaYMD(v){
+  if(!v) return "";
+  const s = String(v);
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  const d = new Date(v);
+  if(isNaN(d)) return "";
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function periodoAnioActual(){ return String(new Date().getFullYear()); }
+function periodoDiaActual(){ return fechaYMD(new Date()); }
+function modoDashboard(){ return document.getElementById("dashPeriodo")?.value || "mensual"; }
+function actualizarControlesDashboard(){
+  const modo = modoDashboard();
+  const mes = document.getElementById("dashMes");
+  const anio = document.getElementById("dashAnio");
+  const dia = document.getElementById("dashDia");
+  if(mes) mes.style.display = modo === "mensual" ? "" : "none";
+  if(anio) anio.style.display = modo === "anual" ? "" : "none";
+  if(dia) dia.style.display = modo === "dia" ? "" : "none";
+  if(mes && !mes.value) mes.value = periodoMesActual();
+  if(anio && !anio.value) anio.value = periodoAnioActual();
+  if(dia && !dia.value) dia.value = periodoDiaActual();
+}
+function setDashPeriodoActual(){
+  const modo = modoDashboard();
+  const mes = document.getElementById("dashMes");
+  const anio = document.getElementById("dashAnio");
+  const dia = document.getElementById("dashDia");
+  if(modo === "anual" && anio) anio.value = periodoAnioActual();
+  else if(modo === "dia" && dia) dia.value = periodoDiaActual();
+  else if(mes) mes.value = periodoMesActual();
+  actualizarControlesDashboard();
   renderDashboard();
 }
-function pedidosDelMesSeleccionado(){
-  const el = document.getElementById("dashMes");
-  if(el && !el.value) el.value = periodoMesActual();
-  const mes = el?.value || periodoMesActual();
+function setDashMesActual(){ setDashPeriodoActual(); }
+function pedidosPeriodoDashboard(){
+  actualizarControlesDashboard();
+  const modo = modoDashboard();
+  if(modo === "general") return pedidos.slice();
+  if(modo === "anual"){
+    const anio = document.getElementById("dashAnio")?.value || periodoAnioActual();
+    return pedidos.filter(p=>fechaYMD(p.fecha).slice(0,4) === String(anio));
+  }
+  if(modo === "dia"){
+    const dia = document.getElementById("dashDia")?.value || periodoDiaActual();
+    return pedidos.filter(p=>fechaYMD(p.fecha) === dia);
+  }
+  const mes = document.getElementById("dashMes")?.value || periodoMesActual();
   return pedidos.filter(p=>mesDeFecha(p.fecha) === mes);
 }
+function comisionPertenecePeriodoDashboard(c){
+  const modo = modoDashboard();
+  if(modo === "general") return true;
+  if(modo === "anual") return fechaYMD(c.fecha).slice(0,4) === String(document.getElementById("dashAnio")?.value || periodoAnioActual());
+  if(modo === "dia") return fechaYMD(c.fecha) === (document.getElementById("dashDia")?.value || periodoDiaActual());
+  return mesDeFecha(c.fecha) === (document.getElementById("dashMes")?.value || periodoMesActual());
+}
+function textoPeriodoDashboard(){
+  const modo = modoDashboard();
+  if(modo === "general") return {titulo:"Análisis general", ventas:"Ventas totales", pedidos:"Pedidos totales", comisiones:"Comisiones pendientes totales"};
+  if(modo === "anual") return {titulo:"Análisis anual", ventas:"Ventas del año", pedidos:"Pedidos del año", comisiones:"Comisiones pendientes del año"};
+  if(modo === "dia") return {titulo:"Análisis diario", ventas:"Ventas del día", pedidos:"Pedidos del día", comisiones:"Comisiones pendientes del día"};
+  return {titulo:"Análisis mensual", ventas:"Ventas del mes", pedidos:"Pedidos del mes", comisiones:"Comisiones pendientes del mes"};
+}
+function pedidosDelMesSeleccionado(){ return pedidosPeriodoDashboard(); }
 function renderDashboard(){
+  actualizarControlesDashboard();
   const total=pedidos.reduce((a,p)=>a+Number(p.total||0),0);
   const comisionesDetalle = calcComisionesDetalle();
-  // Comisiones pendientes: sumar SALDO de pendientes + parciales.
-  // Antes solo tomaba estado "Pendiente" e ignoraba el saldo parcial del vendedor.
   const comPendiente=comisionesDetalle.filter(c=>Number(c.saldo||0)>0).reduce((a,c)=>a+Number(c.saldo||0),0);
   const countEstado = e => pedidos.filter(p=>p.estado===e).length;
   const setMetric=(id,val)=>{const el=document.getElementById(id); if(el) el.innerText=val};
@@ -1572,20 +1642,26 @@ function renderDashboard(){
   setMetric("mProductos", productos.length);
   setMetric("mComisiones", money(comPendiente));
 
-  const dashMes = document.getElementById("dashMes");
-  if(dashMes && !dashMes.value) dashMes.value = periodoMesActual();
-  const pedidosMes = pedidosDelMesSeleccionado();
-  const ventasMes = pedidosMes.reduce((a,p)=>a+Number(p.total||0),0);
-  const ticket = pedidosMes.length ? ventasMes / pedidosMes.length : 0;
-  const mes = dashMes?.value || periodoMesActual();
-  const comPendMes = comisionesDetalle.filter(c=>Number(c.saldo||0)>0 && mesDeFecha(c.fecha)===mes).reduce((a,c)=>a+Number(c.saldo||0),0);
-  setMetric("mVentasMes", money(ventasMes));
-  setMetric("mPedidosMes", pedidosMes.length);
+  const textos = textoPeriodoDashboard();
+  const setText=(id,val)=>{const el=document.getElementById(id); if(el) el.innerText=val};
+  setText("dashAnalisisTitulo", textos.titulo);
+  setText("lblVentasPeriodo", textos.ventas);
+  setText("lblPedidosPeriodo", textos.pedidos);
+  setText("lblComisionesPeriodo", textos.comisiones);
+
+  const pedidosPeriodo = pedidosPeriodoDashboard();
+  const ventasPeriodo = pedidosPeriodo.reduce((a,p)=>a+Number(p.total||0),0);
+  const ticket = pedidosPeriodo.length ? ventasPeriodo / pedidosPeriodo.length : 0;
+  const comPendPeriodo = comisionesDetalle
+    .filter(c=>Number(c.saldo||0)>0 && comisionPertenecePeriodoDashboard(c))
+    .reduce((a,c)=>a+Number(c.saldo||0),0);
+  setMetric("mVentasMes", money(ventasPeriodo));
+  setMetric("mPedidosMes", pedidosPeriodo.length);
   setMetric("mTicketMes", money(ticket));
-  setMetric("mComisionesMes", money(comPendMes));
+  setMetric("mComisionesMes", money(comPendPeriodo));
 
   const porVendedor = {};
-  pedidosMes.forEach(p=>{
+  pedidosPeriodo.forEach(p=>{
     const nombre = p.vendedor || getVendedorDePedido(p)?.nombre || "Sin vendedor";
     if(!porVendedor[nombre]) porVendedor[nombre] = {pedidos:0,total:0};
     porVendedor[nombre].pedidos += 1;
@@ -1599,7 +1675,7 @@ function renderDashboard(){
   if(topVEl) topVEl.innerHTML = table(["Vendedor","Pedidos","Ventas"], topV.map(x=>[x.nombre,x.pedidos,money(x.total)]));
 
   const porProducto = {};
-  pedidosMes.forEach(p=>{
+  pedidosPeriodo.forEach(p=>{
     (p.lineas||[]).forEach(l=>{
       const sku = l.sku || "";
       const nombre = l.nombre || l.producto || sku || "Producto";
@@ -2603,6 +2679,7 @@ function renderComisiones(){
     ["Fecha","Pedido","Cliente","Vendedor","Total","Base","%","Comisión","Pagado","Saldo","Estado","Acción"],
     filas
   );
+  renderHistorialComisiones();
 }
 
 async function guardarEstadoComisionSupabase(pedidoId, estado, fecha, pagadoImporte, pagos){
@@ -2805,6 +2882,58 @@ async function registrarPagoGeneralComision(){
   renderAll();
 }
 
+
+function movimientosComisiones(){
+  const detalle = calcComisionesDetalle();
+  const detallePorKey = {};
+  detalle.forEach(c=>{ detallePorKey[String(c.comision_key)] = c; });
+  const movimientos = [];
+  pedidos.forEach(p=>{
+    const pagos = Array.isArray(p.comision_pagos) ? p.comision_pagos : [];
+    pagos.forEach((pago, idx)=>{
+      const key = String(pago.comision_key || (p.id + "__normal"));
+      const det = detallePorKey[key] || detalle.find(c=>String(c.pedido_id)===String(p.id));
+      movimientos.push({
+        fecha:pago.fecha || p.comision_pagada_fecha || p.fecha || "",
+        pedido_id:p.id,
+        cliente:p.cliente || "",
+        vendedor:det?.vendedor || p.vendedor || "",
+        vendedor_id:det?.vendedor_id || p.vendedor_id || "",
+        tipo:det?.tipo || (esComisionDiferidaKey(key) ? "Diferida" : "Normal"),
+        importe:Number(pago.importe || 0),
+        usuario:pago.usuario || "",
+        nota:pago.nota || "",
+        comision_key:key,
+        orden:idx
+      });
+    });
+  });
+  return movimientos.sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+}
+function movimientosComisionesFiltrados(){
+  const vendedor = document.getElementById("fComVendedor")?.value || "";
+  const mes = document.getElementById("fComMes")?.value || "";
+  return movimientosComisiones().filter(m=>{
+    const matchVendedor = !vendedor || String(m.vendedor_id)===String(vendedor) || String(m.vendedor)===String(vendedor);
+    const matchMes = !mes || mesDeFecha(m.fecha)===mes;
+    return matchVendedor && matchMes;
+  });
+}
+function renderHistorialComisiones(){
+  const el = document.getElementById("tablaHistorialComisiones");
+  if(!el) return;
+  const rows = movimientosComisionesFiltrados().map(m=>[
+    m.fecha ? new Date(m.fecha).toLocaleString("es-AR") : "",
+    "#" + m.pedido_id,
+    m.cliente,
+    m.vendedor,
+    m.tipo,
+    `<span class="badge green">${money(m.importe)}</span>`,
+    m.usuario || "-",
+    m.nota || "-"
+  ]);
+  el.innerHTML = table(["Fecha","Pedido","Cliente","Vendedor","Tipo","Importe","Usuario","Descripción"], rows);
+}
 function limpiarFiltrosComisiones(){
   const v = document.getElementById("fComVendedor");
   const m = document.getElementById("fComMes");
