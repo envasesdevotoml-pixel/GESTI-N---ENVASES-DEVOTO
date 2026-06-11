@@ -1161,6 +1161,8 @@ async function guardarPedido(){
       porcentaje_comision_diferida: porcentajeComisionDiferidaSeleccionado(),
       base_comision_diferida: totales.base_comision_diferida,
       comision_diferida_importe: vendedorReferidoSeleccionado() ? (totales.base_comision_diferida * porcentajeComisionDiferidaSeleccionado() / 100) : 0,
+      metodo_entrega: document.getElementById("pMetodoEntrega")?.value || "",
+      metodo_pago: document.getElementById("pMetodoPago")?.value || "",
       usuario_nombre: currentUser ? currentUser.nombre : "",
       usuario_rol: currentUser ? currentUser.rol : ""
     };
@@ -1176,8 +1178,6 @@ async function guardarPedido(){
     // IMPORTANTE: no borrar campos de comisión diferida en el guardado alternativo.
     // Antes se eliminaban acá y por eso el pedido calculaba bien la diferida,
     // pero al guardar en Supabase quedaban vacíos referido_nombre / base / importe.
-    delete cabeceraBasica.metodo_entrega;
-    delete cabeceraBasica.metodo_pago;
     delete cabeceraBasica.usuario_nombre;
     delete cabeceraBasica.usuario_rol;
 
