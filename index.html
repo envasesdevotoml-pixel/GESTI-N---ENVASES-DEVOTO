@@ -2609,7 +2609,12 @@ async function agregarPagoComision(pedidoId, importe, nota){
   const key = pedidoId;
   const pedido = pedidoPorComisionKey(key);
   if(!pedido) return;
-  const detalle = calcComisionesDetalle().find(c=>String(c.comision_key||c.pedido_id)===String(pedidoId));
+  // Busca por comision_key exacto, o por pedido_id+__normal si se pasó solo el id numérico
+  const detalle = calcComisionesDetalle().find(c=>
+    String(c.comision_key||c.pedido_id)===String(pedidoId) ||
+    String(c.comision_key)===String(pedidoId)+"__normal" ||
+    String(c.comision_key)===String(pedidoId)+"__dif"
+  );
   const generado = Number(detalle?.importe || 0);
   const saldoActual = Number(detalle?.saldo || generado);
   const monto = Math.min(Number(importe||0), saldoActual);
@@ -2718,7 +2723,7 @@ async function registrarPagoGeneralComision(){
   for(const c of pendientes){
     if(restante <= 0) break;
     const aplicar = Math.min(restante, c.saldo);
-    aplicaciones.push({pedido_id:c.pedido_id, cliente:c.cliente, saldo:c.saldo, aplicar});
+    aplicaciones.push({pedido_id:c.pedido_id, comision_key:c.comision_key, cliente:c.cliente, saldo:c.saldo, aplicar});
     restante -= aplicar;
   }
 
@@ -2731,7 +2736,8 @@ async function registrarPagoGeneralComision(){
   const nota = prompt("Observación opcional para este pago general:", "Pago general a vendedor") || "Pago general a vendedor";
 
   for(const x of aplicaciones){
-    await agregarPagoComision(x.pedido_id, x.aplicar, `${nota} - aplicado automáticamente`);
+    // Usar comision_key para que agregarPagoComision encuentre el detalle correcto
+    await agregarPagoComision(x.comision_key || x.pedido_id, x.aplicar, `${nota} - aplicado automáticamente`);
   }
 
   if(sobrante > 0){
