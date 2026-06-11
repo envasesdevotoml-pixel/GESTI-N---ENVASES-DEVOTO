@@ -2341,29 +2341,56 @@ function porcentajeComisionPedido(p){
 }
 
 function pagosManualesComisionPedido(p, key){
-  const k = key || p.id;
+  const k = String(key || (p.id + "__normal"));
+
+  // 1) Primero usa pagos separados por clave exacta: pedido__normal o pedido__dif.
   const desdeLocal = comisionesPagosManual[k];
   if(Array.isArray(desdeLocal)) return desdeLocal;
-  if(Array.isArray(p.comision_pagos)) return p.comision_pagos;
+
+  // 2) Compatibilidad con pagos guardados dentro del pedido.
+  // IMPORTANTE: si los pagos tienen comision_key, se filtran por esa comisión.
+  // Así un pago al vendedor principal NO aparece como pago del referido/diferido.
+  if(Array.isArray(p.comision_pagos)){
+    const conClave = p.comision_pagos.filter(x=>x && x.comision_key);
+    if(conClave.length) return conClave.filter(x=>String(x.comision_key)===k);
+
+    // Pagos viejos sin comision_key: solo se consideran para la comisión normal.
+    // Nunca para la diferida, porque antes eso mezclaba vendedores.
+    if(!esComisionDiferidaKey(k)) return p.comision_pagos;
+  }
+
   return [];
 }
 
 function totalPagadoComisionPedido(p, importeGenerado, key){
-  const pagos = pagosManualesComisionPedido(p, key);
+  const k = String(key || (p.id + "__normal"));
+  const pagos = pagosManualesComisionPedido(p, k);
   const manual = pagos.reduce((a,x)=>a+Number(x.importe||0),0);
-  const campo = Number(p.comision_pagado_importe || p.commission_paid_amount || 0);
+
+  // El campo viejo comision_pagado_importe corresponde solo a la comisión normal.
+  // No debe afectar a la comisión diferida/referido.
+  const campo = !esComisionDiferidaKey(k) ? Number(p.comision_pagado_importe || p.commission_paid_amount || 0) : 0;
+
   const totalManual = Math.max(manual, campo);
   if(totalManual > 0) return Math.min(totalManual, Number(importeGenerado||0));
-  if(comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada") return Number(importeGenerado||0);
+
+  // Los estados viejos del pedido completo solo aplican a la comisión normal.
+  if(!esComisionDiferidaKey(k) && (comisionesPagas[k] || comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada")){
+    return Number(importeGenerado||0);
+  }
+
+  if(esComisionDiferidaKey(k) && comisionesPagas[k]) return Number(importeGenerado||0);
   return 0;
 }
 
 function estadoComisionPedido(p, importeGenerado, key){
+  const k = String(key || (p.id + "__normal"));
   const importe = Number(importeGenerado||0);
-  const pagado = totalPagadoComisionPedido(p, importe, key);
+  const pagado = totalPagadoComisionPedido(p, importe, k);
   if(importe > 0 && pagado >= importe) return "Pagada";
   if(pagado > 0) return "Parcial";
-  if(comisionesPagas[key || p.id] || (!key && (p.comision_estado === "Pagada" || p.commission_status === "Pagada"))) return "Pagada";
+  if(comisionesPagas[k]) return "Pagada";
+  if(!esComisionDiferidaKey(k) && (comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada")) return "Pagada";
   return "Pendiente";
 }
 
@@ -2595,13 +2622,15 @@ async function marcarComisionPendiente(pedidoId){
   delete comisionesPagosManual[key];
   const pedido = pedidoPorComisionKey(key);
   if(pedido){
-    pedido.comision_estado = "Pendiente";
-    pedido.comision_pagada_fecha = "";
-    pedido.comision_pagado_importe = 0;
-    pedido.comision_pagos = [];
+    pedido.comision_pagos = Array.isArray(pedido.comision_pagos) ? pedido.comision_pagos.filter(x=>String(x.comision_key||"") !== String(key)) : [];
+    if(!esComisionDiferidaKey(key)){
+      pedido.comision_estado = "Pendiente";
+      pedido.comision_pagada_fecha = "";
+      pedido.comision_pagado_importe = 0;
+    }
   }
   saveLocal();
-  if(!esComisionDiferidaKey(key)) await guardarEstadoComisionSupabase(comisionKeyPedido(key), "Pendiente", null, 0, []);
+  if(pedido) await guardarEstadoComisionSupabase(comisionKeyPedido(key), pedido.comision_estado || "Pendiente", pedido.comision_pagada_fecha || null, Number(pedido.comision_pagado_importe||0), pedido.comision_pagos || []);
   renderAll();
 }
 
@@ -2625,7 +2654,8 @@ async function agregarPagoComision(pedidoId, importe, nota){
     fecha,
     importe:monto,
     nota: nota || "",
-    usuario: currentUser?.nombre || ""
+    usuario: currentUser?.nombre || "",
+    comision_key:String(key)
   };
 
   const pagos = pagosManualesComisionPedido(pedido, key).concat([pago]);
@@ -2636,13 +2666,26 @@ async function agregarPagoComision(pedidoId, importe, nota){
   if(estado === "Pagada") comisionesPagas[key] = {estado:"Pagada", fecha};
   else delete comisionesPagas[key];
 
-  pedido.comision_estado = estado;
-  pedido.comision_pagada_fecha = fecha;
-  pedido.comision_pagado_importe = Math.min(pagado, generado);
-  pedido.comision_pagos = pagos;
+  // Guardamos todos los pagos del pedido en un mismo array, pero identificados por comision_key.
+  // Esto permite persistir normal y diferida sin que se mezclen.
+  const pagosPedidoPrevios = Array.isArray(pedido.comision_pagos) ? pedido.comision_pagos : [];
+  const pagosDeOtrasComisiones = pagosPedidoPrevios.filter(x=>String(x.comision_key||"") !== String(key));
+  pedido.comision_pagos = pagosDeOtrasComisiones.concat(pagos);
+
+  // Los campos simples del pedido se mantienen solo para la comisión normal, por compatibilidad.
+  if(!esComisionDiferidaKey(key)){
+    pedido.comision_estado = estado;
+    pedido.comision_pagada_fecha = fecha;
+    pedido.comision_pagado_importe = Math.min(pagado, generado);
+  }
 
   saveLocal();
-  if(!esComisionDiferidaKey(key)) await guardarEstadoComisionSupabase(comisionKeyPedido(key), estado, fecha, pedido.comision_pagado_importe, pagos);
+
+  // Se persiste el array completo con comision_key. El estado simple solo representa la comisión normal.
+  const estadoNormal = !esComisionDiferidaKey(key) ? estado : (pedido.comision_estado || "Pendiente");
+  const fechaNormal = !esComisionDiferidaKey(key) ? fecha : (pedido.comision_pagada_fecha || null);
+  const pagadoNormal = !esComisionDiferidaKey(key) ? pedido.comision_pagado_importe : Number(pedido.comision_pagado_importe||0);
+  await guardarEstadoComisionSupabase(comisionKeyPedido(key), estadoNormal, fechaNormal, pagadoNormal, pedido.comision_pagos);
   renderAll();
 }
 
