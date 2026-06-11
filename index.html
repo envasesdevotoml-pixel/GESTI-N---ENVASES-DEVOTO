@@ -1092,6 +1092,8 @@ async function guardarPedido(){
       porcentaje_comision_diferida: porcentajeComisionDiferidaSeleccionado(),
       base_comision_diferida: totales.base_comision_diferida,
       comision_diferida_importe: vendedorReferidoSeleccionado() ? (totales.base_comision_diferida * porcentajeComisionDiferidaSeleccionado() / 100) : 0,
+      metodo_entrega: document.getElementById("pMetodoEntrega")?.value || "",
+      metodo_pago: document.getElementById("pMetodoPago")?.value || "",
       usuario_nombre: currentUser ? currentUser.nombre : "",
       usuario_rol: currentUser ? currentUser.rol : ""
     };
@@ -1603,10 +1605,24 @@ async function editarPedido(id){
   const descPreset = document.getElementById("pDescuentoPreset"); if(descPreset) descPreset.value = ["0","5","10","15","20"].includes(String(pedido.descuento_porcentaje || 0)) ? String(pedido.descuento_porcentaje || 0) : "manual";
   const ajPreset = document.getElementById("pAjustePreset"); if(ajPreset) ajPreset.value = ["0","4","10.5","21"].includes(String(pedido.ajuste_porcentaje || 0)) ? String(pedido.ajuste_porcentaje || 0) : "manual";
 
-  const vendedorIndex = vendedores.findIndex(v=>v.id==pedido.vendedor_id || v.nombre==pedido.vendedor);
-  document.getElementById("pVendedor").value = vendedorIndex >= 0 ? vendedorIndex : "";
-  const referidoIndex = vendedores.findIndex(v=>v.id==pedido.referido_id || v.nombre==pedido.referido_nombre);
-  const refSel = document.getElementById("pReferido"); if(refSel) refSel.value = referidoIndex >= 0 ? referidoIndex : "";
+  // Al editar pedidos viejos/Supabase puede devolver nombres o ids con distintos formatos.
+  // Buscamos de forma flexible para no perder vendedor, referido ni porcentaje al abrir edición.
+  const normalizar = v => String(v ?? "").trim().toLowerCase();
+  const vendedorNombrePedido = pedido.vendedor || pedido.vendedor_nombre || pedido.vendedorNombre || "";
+  const vendedorIdPedido = pedido.vendedor_id || pedido.id_vendedor || "";
+  const vendedorIndex = vendedores.findIndex(v=>
+    normalizar(v.id) === normalizar(vendedorIdPedido) ||
+    normalizar(v.nombre) === normalizar(vendedorNombrePedido)
+  );
+  document.getElementById("pVendedor").value = vendedorIndex >= 0 ? String(vendedorIndex) : "";
+
+  const referidoNombrePedido = pedido.referido_nombre || pedido.referido || pedido.referidoNombre || "";
+  const referidoIdPedido = pedido.referido_id || pedido.id_referido || "";
+  const referidoIndex = vendedores.findIndex(v=>
+    normalizar(v.id) === normalizar(referidoIdPedido) ||
+    normalizar(v.nombre) === normalizar(referidoNombrePedido)
+  );
+  const refSel = document.getElementById("pReferido"); if(refSel) refSel.value = referidoIndex >= 0 ? String(referidoIndex) : "";
   const pctDif = document.getElementById("pComisionDiferidaPct"); if(pctDif) pctDif.value = Number(pedido.porcentaje_comision_diferida || 5);
 
   renderPedidoActual();
