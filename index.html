@@ -2279,13 +2279,28 @@ async function eliminarODesactivarVendedor(id){
 function subtotalPedido(p){
   if(Number(p?.subtotal||0)) return Number(p.subtotal||0);
   if(Array.isArray(p?.lineas) && p.lineas.length) return p.lineas.reduce((a,l)=>a+Number(l.subtotal||0),0);
-  return Number(p?.total||0);
+  // Si no hay subtotal guardado, recuperarlo desde total y ajuste
+  // total = base_comision * (1 + ajuste/100), base_comision ≈ subtotal cuando no hay descuento
+  const total = Number(p?.total||0);
+  const ajustePct = Number(p?.ajuste_porcentaje||0);
+  if(total && ajustePct) return Math.round(total / (1 + ajustePct / 100));
+  return total;
 }
 function baseComisionPedido(p){
-  if(Number(p?.base_comision||0)) return Number(p.base_comision||0);
   const sub = subtotalPedido(p);
   const desc = Number(p?.descuento_importe||0) || (sub * Number(p?.descuento_porcentaje||0) / 100);
-  return Math.max(0, sub - desc);
+  const baseCalculada = Math.max(0, sub - desc);
+
+  const baseGuardada = Number(p?.base_comision||0);
+  if(!baseGuardada) return baseCalculada;
+
+  // Validación: si base_comision guardada es mucho menor que el subtotal
+  // (menos del 50%) es un dato corrupto — se recalcula.
+  // Esto puede pasar si el pedido fue guardado antes de que existiera
+  // la columna base_comision en Supabase.
+  if(sub > 0 && baseGuardada < sub * 0.5) return baseCalculada;
+
+  return baseGuardada;
 }
 function getVendedorDePedido(p){
   return vendedores.find(x=>x.id==p.vendedor_id || x.nombre==p.vendedor) || null;
