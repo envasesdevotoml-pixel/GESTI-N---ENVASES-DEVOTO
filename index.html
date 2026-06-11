@@ -1557,7 +1557,9 @@ function pedidosDelMesSeleccionado(){
 function renderDashboard(){
   const total=pedidos.reduce((a,p)=>a+Number(p.total||0),0);
   const comisionesDetalle = calcComisionesDetalle();
-  const comPendiente=comisionesDetalle.filter(c=>c.estado==="Pendiente").reduce((a,c)=>a+Number(c.importe||0),0);
+  // Comisiones pendientes: sumar SALDO de pendientes + parciales.
+  // Antes solo tomaba estado "Pendiente" e ignoraba el saldo parcial del vendedor.
+  const comPendiente=comisionesDetalle.filter(c=>Number(c.saldo||0)>0).reduce((a,c)=>a+Number(c.saldo||0),0);
   const countEstado = e => pedidos.filter(p=>p.estado===e).length;
   const setMetric=(id,val)=>{const el=document.getElementById(id); if(el) el.innerText=val};
   setMetric("mPendientes", countEstado("Pendiente"));
@@ -1576,7 +1578,7 @@ function renderDashboard(){
   const ventasMes = pedidosMes.reduce((a,p)=>a+Number(p.total||0),0);
   const ticket = pedidosMes.length ? ventasMes / pedidosMes.length : 0;
   const mes = dashMes?.value || periodoMesActual();
-  const comPendMes = comisionesDetalle.filter(c=>c.estado==="Pendiente" && mesDeFecha(c.fecha)===mes).reduce((a,c)=>a+Number(c.importe||0),0);
+  const comPendMes = comisionesDetalle.filter(c=>Number(c.saldo||0)>0 && mesDeFecha(c.fecha)===mes).reduce((a,c)=>a+Number(c.saldo||0),0);
   setMetric("mVentasMes", money(ventasMes));
   setMetric("mPedidosMes", pedidosMes.length);
   setMetric("mTicketMes", money(ticket));
@@ -2364,27 +2366,22 @@ function pagosManualesComisionPedido(p, key){
 
 function totalPagadoComisionPedido(p, importeGenerado, key){
   const k = String(key || (p.id + "__normal"));
-  const importe = Number(importeGenerado || 0);
   const pagos = pagosManualesComisionPedido(p, k);
   const manual = pagos.reduce((a,x)=>a+Number(x.importe||0),0);
 
-  // REGLA CLAVE:
-  // La comisión diferida/referido SOLO puede figurar pagada si tiene pagos con su propia clave "pedido__dif".
-  // Nunca debe heredar comision_estado, comision_pagado_importe ni comisionesPagas[pedido_id] de la comisión normal.
-  if(esComisionDiferidaKey(k)){
-    return Math.min(manual, importe);
-  }
+  // El campo viejo comision_pagado_importe corresponde solo a la comisión normal.
+  // No debe afectar a la comisión diferida/referido.
+  const campo = !esComisionDiferidaKey(k) ? Number(p.comision_pagado_importe || p.commission_paid_amount || 0) : 0;
 
-  // Comisión normal: compatibilidad con datos viejos del pedido.
-  const campo = Number(p.comision_pagado_importe || p.commission_paid_amount || 0);
   const totalManual = Math.max(manual, campo);
-  if(totalManual > 0) return Math.min(totalManual, importe);
+  if(totalManual > 0) return Math.min(totalManual, Number(importeGenerado||0));
 
-  // Estados viejos sin importe: solo normal.
-  if(comisionesPagas[k] || comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada"){
-    return importe;
+  // Los estados viejos del pedido completo solo aplican a la comisión normal.
+  if(!esComisionDiferidaKey(k) && (comisionesPagas[k] || comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada")){
+    return Number(importeGenerado||0);
   }
 
+  if(esComisionDiferidaKey(k) && comisionesPagas[k]) return Number(importeGenerado||0);
   return 0;
 }
 
@@ -2394,21 +2391,15 @@ function estadoComisionPedido(p, importeGenerado, key){
   const pagado = totalPagadoComisionPedido(p, importe, k);
   if(importe > 0 && pagado >= importe) return "Pagada";
   if(pagado > 0) return "Parcial";
-
-  // La diferida no toma estados viejos globales. Solo pagos propios.
-  if(esComisionDiferidaKey(k)) return "Pendiente";
-
   if(comisionesPagas[k]) return "Pagada";
-  if(comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada") return "Pagada";
+  if(!esComisionDiferidaKey(k) && (comisionesPagas[p.id] || p.comision_estado === "Pagada" || p.commission_status === "Pagada")) return "Pagada";
   return "Pendiente";
 }
 
 function fechaPagoComisionPedido(p, key){
-  const k = String(key || (p.id + "__normal"));
-  const pagos = pagosManualesComisionPedido(p, k);
+  const pagos = pagosManualesComisionPedido(p, key);
   if(pagos.length) return pagos[pagos.length-1].fecha || "";
-  if(esComisionDiferidaKey(k)) return "";
-  return comisionesPagas[k]?.fecha || comisionesPagas[p.id]?.fecha || (p.comision_pagada_fecha || p.commission_paid_at || "");
+  return comisionesPagas[key || p.id]?.fecha || (!key ? (p.comision_pagada_fecha || p.commission_paid_at || "") : "");
 }
 
 function calcComisionesDetalle(){
@@ -2510,29 +2501,18 @@ function comisionesFiltradas(){
   });
 }
 
-
-function limpiarMarcasDiferidasViejas(){
-  // Limpia marcas viejas creadas por versiones anteriores donde una comisión normal podía pagar la diferida.
-  // No borra pagos reales: si la diferida tiene pagos con comision_key "__dif", se conserva.
-  pedidos.forEach(p=>{
-    const keyDif = String(p.id) + "__dif";
-    const pagosDif = pagosManualesComisionPedido(p, keyDif);
-    if(!pagosDif.length){
-      delete comisionesPagas[keyDif];
-      delete comisionesPagosManual[keyDif];
-      if(Array.isArray(p.comision_pagos)){
-        p.comision_pagos = p.comision_pagos.filter(x=>String(x.comision_key||"") !== keyDif);
-      }
-    }
-  });
-}
-
 function renderComisiones(){
-  limpiarMarcasDiferidasViejas();
   llenarFiltroVendedoresComisiones();
 
   const detalle = comisionesFiltradas();
-  const ventas = detalle.reduce((a,c)=>a+c.total,0);
+  // Ventas filtradas: contar cada pedido una sola vez.
+  // Antes se sumaba por línea de comisión (normal + diferida) y duplicaba ventas.
+  const pedidosUnicosVentas = {};
+  detalle.forEach(c=>{
+    const pid = String(c.pedido_id || c.comision_key || "");
+    if(pid && !pedidosUnicosVentas[pid]) pedidosUnicosVentas[pid] = Number(c.total || 0);
+  });
+  const ventas = Object.values(pedidosUnicosVentas).reduce((a,v)=>a+Number(v||0),0);
   const generada = detalle.reduce((a,c)=>a+c.importe,0);
   const pagada = detalle.reduce((a,c)=>a+c.pagado,0);
   const pendiente = detalle.reduce((a,c)=>a+c.saldo,0);
@@ -2664,12 +2644,15 @@ async function marcarComisionPendiente(pedidoId){
 }
 
 async function agregarPagoComision(pedidoId, importe, nota){
-  const key = String(pedidoId).includes("__") ? String(pedidoId) : String(pedidoId) + "__normal";
+  const key = pedidoId;
   const pedido = pedidoPorComisionKey(key);
   if(!pedido) return;
-  // Busca por clave exacta. Si se pasa solo el id del pedido por compatibilidad, asume comisión normal.
-  // Importante: un pago normal nunca debe caer en la comisión diferida.
-  const detalle = calcComisionesDetalle().find(c=>String(c.comision_key)===key);
+  // Busca por comision_key exacto, o por pedido_id+__normal si se pasó solo el id numérico
+  const detalle = calcComisionesDetalle().find(c=>
+    String(c.comision_key||c.pedido_id)===String(pedidoId) ||
+    String(c.comision_key)===String(pedidoId)+"__normal" ||
+    String(c.comision_key)===String(pedidoId)+"__dif"
+  );
   const generado = Number(detalle?.importe || 0);
   const saldoActual = Number(detalle?.saldo || generado);
   const monto = Math.min(Number(importe||0), saldoActual);
