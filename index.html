@@ -856,6 +856,13 @@ function parseJsonSafe(value, fallback){
   }catch(e){ return fallback; }
 }
 
+function campoSupabaseOLocal(obj, campo, fallback){
+  // A diferencia de ||, respeta valores vacíos y 0.
+  // Esto es clave para que "Ninguno" no vuelva a tomar un referido viejo del localStorage.
+  if(obj && Object.prototype.hasOwnProperty.call(obj, campo) && obj[campo] !== undefined && obj[campo] !== null) return obj[campo];
+  return fallback;
+}
+
 async function cargarDesdeSupabase(){
   if(!sb) return;
   try{
@@ -882,33 +889,33 @@ async function cargarDesdeSupabase(){
         id:x.id,
         fecha:x.fecha,
         cliente_id:x.cliente_id,
-        cliente:x.cliente_nombre || lp.cliente || "",
-        telefono:x.cliente_telefono || lp.telefono || "",
-        vendedor:x.vendedor_nombre || lp.vendedor || "",
-        vendedor_id:x.vendedor_id || lp.vendedor_id || null,
+        cliente:campoSupabaseOLocal(x,"cliente_nombre", lp.cliente || ""),
+        telefono:campoSupabaseOLocal(x,"cliente_telefono", lp.telefono || ""),
+        vendedor:campoSupabaseOLocal(x,"vendedor_nombre", lp.vendedor || ""),
+        vendedor_id:campoSupabaseOLocal(x,"vendedor_id", lp.vendedor_id || null),
         estado:x.estado || lp.estado || "Pendiente",
         observaciones:x.observaciones || lp.observaciones || "",
         lineas:Array.isArray(lp.lineas) ? lp.lineas : [],
-        total:x.total || lp.total || 0,
-        subtotal:x.subtotal || lp.subtotal || x.total || lp.total || 0,
-        descuento_porcentaje:x.descuento_porcentaje || lp.descuento_porcentaje || 0,
-        descuento_importe:x.descuento_importe || lp.descuento_importe || 0,
-        ajuste_porcentaje:x.ajuste_porcentaje || lp.ajuste_porcentaje || 0,
-        ajuste_importe:x.ajuste_importe || lp.ajuste_importe || 0,
-        base_comision:x.base_comision || lp.base_comision || x.subtotal || lp.subtotal || x.total || lp.total || 0,
-        porcentaje_comision:x.porcentaje_comision || lp.porcentaje_comision || 0,
-        referido_nombre:x.referido_nombre || lp.referido_nombre || lp.referido || "",
-        referido_id:x.referido_id || lp.referido_id || null,
-        porcentaje_comision_diferida:x.porcentaje_comision_diferida || lp.porcentaje_comision_diferida || 0,
-        base_comision_diferida:x.base_comision_diferida || lp.base_comision_diferida || 0,
-        comision_diferida_importe:x.comision_diferida_importe || lp.comision_diferida_importe || 0,
+        total:campoSupabaseOLocal(x,"total", lp.total || 0),
+        subtotal:campoSupabaseOLocal(x,"subtotal", lp.subtotal || x.total || lp.total || 0),
+        descuento_porcentaje:campoSupabaseOLocal(x,"descuento_porcentaje", lp.descuento_porcentaje || 0),
+        descuento_importe:campoSupabaseOLocal(x,"descuento_importe", lp.descuento_importe || 0),
+        ajuste_porcentaje:campoSupabaseOLocal(x,"ajuste_porcentaje", lp.ajuste_porcentaje || 0),
+        ajuste_importe:campoSupabaseOLocal(x,"ajuste_importe", lp.ajuste_importe || 0),
+        base_comision:campoSupabaseOLocal(x,"base_comision", lp.base_comision || x.subtotal || lp.subtotal || x.total || lp.total || 0),
+        porcentaje_comision:campoSupabaseOLocal(x,"porcentaje_comision", lp.porcentaje_comision || 0),
+        referido_nombre:campoSupabaseOLocal(x,"referido_nombre", lp.referido_nombre || lp.referido || ""),
+        referido_id:campoSupabaseOLocal(x,"referido_id", lp.referido_id || null),
+        porcentaje_comision_diferida:campoSupabaseOLocal(x,"porcentaje_comision_diferida", lp.porcentaje_comision_diferida || 0),
+        base_comision_diferida:campoSupabaseOLocal(x,"base_comision_diferida", lp.base_comision_diferida || 0),
+        comision_diferida_importe:campoSupabaseOLocal(x,"comision_diferida_importe", lp.comision_diferida_importe || 0),
         comision_estado:x.comision_estado || x.commission_status || lp.comision_estado || "",
         comision_pagada_fecha:x.comision_pagada_fecha || x.commission_paid_at || lp.comision_pagada_fecha || "",
         comision_pagado_importe:Number(x.comision_pagado_importe || x.commission_paid_amount || lp.comision_pagado_importe || 0),
         comision_pagos:parseJsonSafe(x.comision_pagos || x.commission_payments || lp.comision_pagos || "[]", []),
         usuario_nombre:x.usuario_nombre || x.created_by || x.usuario || lp.usuario_nombre || "",
-        metodo_entrega:x.metodo_entrega || x.entrega || lp.metodo_entrega || "",
-        metodo_pago:x.metodo_pago || x.pago || lp.metodo_pago || ""
+        metodo_entrega:campoSupabaseOLocal(x,"metodo_entrega", x.entrega || lp.metodo_entrega || ""),
+        metodo_pago:campoSupabaseOLocal(x,"metodo_pago", x.pago || lp.metodo_pago || "")
         };
       });
 
@@ -1158,6 +1165,10 @@ async function guardarPedido(){
 
   const totales = recalcularTotalesPedido();
   const total = totales.total;
+  const referidoSeleccionado = vendedorReferidoSeleccionado();
+  const pctDiferidaSeleccionada = referidoSeleccionado ? porcentajeComisionDiferidaSeleccionado() : 0;
+  const baseDiferidaCabecera = referidoSeleccionado ? totales.base_comision_diferida : 0;
+  const importeDiferidaCabecera = referidoSeleccionado ? (baseDiferidaCabecera * pctDiferidaSeleccionada / 100) : 0;
   const pedidoAnterior = pedidoEditandoId ? JSON.parse(JSON.stringify(pedidos.find(p=>String(p.id)===String(pedidoEditandoId)) || null)) : null;
   let pedidoGuardado = null;
 
@@ -1178,11 +1189,11 @@ async function guardarPedido(){
       ajuste_importe: totales.ajuste_importe,
       base_comision: totales.base_comision,
       porcentaje_comision: Number(vendedor?.porcentaje_comision || 0),
-      referido_nombre: vendedorReferidoSeleccionado()?.nombre || "",
-      referido_id: vendedorReferidoSeleccionado()?.id || null,
-      porcentaje_comision_diferida: porcentajeComisionDiferidaSeleccionado(),
-      base_comision_diferida: totales.base_comision_diferida,
-      comision_diferida_importe: vendedorReferidoSeleccionado() ? (totales.base_comision_diferida * porcentajeComisionDiferidaSeleccionado() / 100) : 0,
+      referido_nombre: referidoSeleccionado ? referidoSeleccionado.nombre : "",
+      referido_id: referidoSeleccionado ? referidoSeleccionado.id : null,
+      porcentaje_comision_diferida: pctDiferidaSeleccionada,
+      base_comision_diferida: baseDiferidaCabecera,
+      comision_diferida_importe: importeDiferidaCabecera,
       metodo_entrega: document.getElementById("pMetodoEntrega")?.value || "",
       metodo_pago: document.getElementById("pMetodoPago")?.value || "",
       usuario_nombre: currentUser ? currentUser.nombre : "",
