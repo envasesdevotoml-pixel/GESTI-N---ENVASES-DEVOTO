@@ -743,12 +743,15 @@ async function sbQuery(fn, mensajeError='Error de base de datos'){
     return null;
   }
 }
+/* Usuarios de respaldo.
+   El login usa primero la tabla "usuarios" de Supabase.
+   Este array queda solo como backup por si Supabase no conecta. */
 const APP_USERS = [
-  {usuario:"Thay", password:"0104", nombre:"Thay", rol:"admin"},
-  {usuario:"Ionatan", password:"Borrachito 12", nombre:"Ionatan", rol:"admin"},
-  {usuario:"Alex", password:"10101964", nombre:"Alex", rol:"admin"},
-  {usuario:"envasesdevoto", password:"envasesdevoto", nombre:"Depósito", rol:"preparacion"},
-  {usuario:"sofialbanese", password:"301294", nombre:"Sofia Albanese", rol:"vendedor"}
+  {usuario:"Thay", password:"0104", nombre:"Thay", rol:"admin", activo:true},
+  {usuario:"Ionatan", password:"Borrachito 12", nombre:"Ionatan", rol:"admin", activo:true},
+  {usuario:"Alex", password:"10101964", nombre:"Alex", rol:"admin", activo:true},
+  {usuario:"envasesdevoto", password:"envasesdevoto", nombre:"Depósito", rol:"preparacion", activo:true},
+  {usuario:"sofialbanese", password:"301294", nombre:"Sofia Albanese", rol:"vendedor", activo:true}
 ];
 let currentUser = null;
 
@@ -759,10 +762,53 @@ function usuarioPuede(seccion){
   if(currentUser.rol === "vendedor") return seccion === "nuevoPedido";
   return false;
 }
-function login(){
+
+async function buscarUsuarioLogin(usuarioIngresado, passwordIngresada){
+  const usuarioLimpio = (usuarioIngresado || "").trim();
+
+  if(sb){
+    try{
+      const { data, error } = await sb
+        .from("usuarios")
+        .select("usuario,nombre,password,rol,activo")
+        .ilike("usuario", usuarioLimpio)
+        .eq("password", passwordIngresada)
+        .eq("activo", true)
+        .limit(1);
+
+      if(error) throw error;
+
+      if(data && data.length){
+        const u = data[0];
+        return {
+          usuario: u.usuario,
+          nombre: u.nombre || u.usuario,
+          rol: u.rol || "vendedor"
+        };
+      }
+
+      // Si Supabase respondió bien pero no encontró el usuario,
+      // no usamos backup: usuario o contraseña incorrectos.
+      return null;
+    }catch(e){
+      console.warn("No se pudo validar usuario en Supabase. Se usa backup local.", e);
+      toast("No se pudo consultar usuarios en Supabase. Usando respaldo local.", "warning");
+    }
+  }
+
+  const found = APP_USERS.find(x =>
+    x.activo !== false &&
+    String(x.usuario || "").toLowerCase() === usuarioLimpio.toLowerCase() &&
+    x.password === passwordIngresada
+  );
+
+  return found ? {usuario:found.usuario,nombre:found.nombre,rol:found.rol} : null;
+}
+
+async function login(){
   const u = document.getElementById("loginUser").value.trim();
   const p = document.getElementById("loginPass").value;
-  const found = APP_USERS.find(x=>x.usuario.toLowerCase()===u.toLowerCase() && x.password===p);
+  const found = await buscarUsuarioLogin(u, p);
   if(!found){ document.getElementById("loginError").innerText = "Usuario o contraseña incorrectos."; return; }
   currentUser = {usuario:found.usuario,nombre:found.nombre,rol:found.rol};
   localStorage.setItem("ed_current_user", JSON.stringify(currentUser));
@@ -806,25 +852,67 @@ function aplicarPermisosUsuario(){
   }
 }
 
-function renderUsuarios(){
+async function obtenerUsuariosSistema(){
+  if(sb){
+    try{
+      const { data, error } = await sb
+        .from("usuarios")
+        .select("usuario,nombre,rol,activo")
+        .order("nombre", { ascending:true });
+
+      if(error) throw error;
+      if(data) return data;
+    }catch(e){
+      console.warn("No se pudieron cargar usuarios desde Supabase. Se usa backup local.", e);
+    }
+  }
+  return APP_USERS;
+}
+
+async function renderUsuarios(){
   const cont = document.getElementById("tablaUsuarios");
   if(!cont) return;
-  cont.innerHTML = table(["Usuario","Nombre","Acceso"], APP_USERS.map(u=>[
+
+  const usuarios = await obtenerUsuariosSistema();
+
+  cont.innerHTML = table(["Usuario","Nombre","Acceso"], usuarios.map(u=>[
     u.usuario,
-    u.nombre,
+    (u.nombre || u.usuario) + (u.activo === false ? " (inactivo)" : ""),
     u.rol==='admin' ? 'Todo el sistema' : (u.rol==='preparacion' ? 'Solo preparación' : 'Solo cargar pedidos')
   ]));
 }
 
 
-function validarPasswordUsuarioActual(motivo){
+async function validarPasswordUsuarioActual(motivo){
   if(!currentUser) return false;
-  const usuario = APP_USERS.find(u=>u.usuario === currentUser.usuario);
-  if(!usuario) return false;
   const pass = prompt((motivo || "Para confirmar esta acción") + "\n\nIngresá la contraseña de " + currentUser.nombre + ":");
   if(pass === null) return false;
+
+  if(sb){
+    try{
+      const { data, error } = await sb
+        .from("usuarios")
+        .select("usuario")
+        .ilike("usuario", currentUser.usuario)
+        .eq("password", pass)
+        .eq("activo", true)
+        .limit(1);
+
+      if(error) throw error;
+      if(data && data.length) return true;
+
+      toast("Contraseña incorrecta. No se realizó la acción.", "error");
+      return false;
+    }catch(e){
+      console.warn("No se pudo validar contraseña en Supabase. Se usa backup local.", e);
+      toast("No se pudo validar en Supabase. Usando respaldo local.", "warning");
+    }
+  }
+
+  const usuario = APP_USERS.find(u=>u.usuario === currentUser.usuario);
+  if(!usuario) return false;
   if(pass !== usuario.password){
-    toast("Contraseña incorrecta. No se realizó la acción.");
+    toast("Contraseña incorrecta. No se realizó la acción.", "error");
     return false;
   }
   return true;
@@ -1853,7 +1941,7 @@ async function eliminarPedidoConPassword(id){
   const etiqueta = pedido ? `#${pedido.id} - ${pedido.cliente || "Sin cliente"}` : `#${id}`;
 
   if(!confirm(`Vas a eliminar el pedido ${etiqueta}.\n\nEsta acción no se puede deshacer. ¿Confirmás?`)) return;
-  if(!validarPasswordUsuarioActual(`Eliminar pedido ${etiqueta}`)) return;
+  if(!(await validarPasswordUsuarioActual(`Eliminar pedido ${etiqueta}`))) return;
 
   try{
     if(sb){
@@ -3087,7 +3175,7 @@ function limpiarFiltrosComisiones(){
 async function borrarTodosLosPedidos(){
   if(currentUser?.rol !== "admin") return toast("Solo administradores pueden borrar pedidos.", "error");
   if(!confirm("Esto borra TODOS los pedidos creados y sus detalles. Se mantienen clientes, vendedores y productos. ¿Confirmás?")) return;
-  if(!validarPasswordUsuarioActual("Borrar TODOS los pedidos")) return;
+  if(!(await validarPasswordUsuarioActual("Borrar TODOS los pedidos"))) return;
   if(!confirm("Última confirmación: ¿arrancar de cero con pedidos vacíos?")) return;
 
   try{
