@@ -748,16 +748,15 @@ const APP_USERS = [
   {usuario:"Ionatan", password:"Borrachito 12", nombre:"Ionatan", rol:"admin"},
   {usuario:"Alex", password:"10101964", nombre:"Alex", rol:"admin"},
   {usuario:"envasesdevoto", password:"envasesdevoto", nombre:"Depósito", rol:"preparacion"},
-  {usuario:"sofialbanese", password:"301294", nombre:"Sofía Albanese", rol:"vendedor"}
+  {usuario:"sofialbanese", password:"301294", nombre:"Sofia Albanese", rol:"vendedor"}
 ];
-  
 let currentUser = null;
 
 function usuarioPuede(seccion){
   if(!currentUser) return false;
   if(currentUser.rol === "admin") return true;
   if(currentUser.rol === "preparacion") return seccion === "preparacion";
-  if(currentUser.rol === "vendedor") return seccion === "cargar";
+  if(currentUser.rol === "vendedor") return seccion === "nuevoPedido";
   return false;
 }
 function login(){
@@ -770,6 +769,7 @@ function login(){
   document.getElementById("loginOverlay").style.display = "none";
   aplicarPermisosUsuario();
   if(currentUser.rol === "preparacion") modoDeposito();
+  else if(currentUser.rol === "vendedor") go("nuevoPedido", document.querySelector('.nav button[onclick*="nuevoPedido"]'));
   else go("dashboard", document.querySelector('.nav button'));
 }
 function logout(){
@@ -781,11 +781,16 @@ function cargarSesion(){
   try{ currentUser = JSON.parse(localStorage.getItem("ed_current_user")||"null"); }catch(e){ currentUser=null; }
   if(!currentUser){ document.getElementById("loginOverlay").style.display = "flex"; return; }
   aplicarPermisosUsuario();
+  setTimeout(()=>{
+    if(currentUser?.rol === "preparacion") modoDeposito();
+    if(currentUser?.rol === "vendedor") go("nuevoPedido", document.querySelector('.nav button[onclick*="nuevoPedido"]'));
+  }, 0);
 }
 function aplicarPermisosUsuario(){
   const box = document.getElementById("userBox");
   if(box && currentUser){
-    box.innerHTML = `<div><span class="avatar">${currentUser.nombre.slice(0,1).toUpperCase()}</span><b>${currentUser.nombre}</b><br><span class="small">${currentUser.rol==='admin'?'Administrador':'Preparación'}</span></div><button class="btn logout" onclick="logout()">Cerrar sesión</button>`;
+    const nombreRol = currentUser.rol==='admin' ? 'Administrador' : (currentUser.rol==='preparacion' ? 'Preparación' : 'Vendedora');
+    box.innerHTML = `<div><span class="avatar">${currentUser.nombre.slice(0,1).toUpperCase()}</span><b>${currentUser.nombre}</b><br><span class="small">${nombreRol}</span></div><button class="btn logout" onclick="logout()">Cerrar sesión</button>`;
   }
   document.querySelectorAll('[data-admin-only="1"]').forEach(el=>{ el.style.display = currentUser?.rol === 'admin' ? '' : 'none'; });
   if(currentUser?.rol === 'preparacion'){
@@ -793,12 +798,22 @@ function aplicarPermisosUsuario(){
       b.style.display = b.textContent.includes('Preparación') ? '' : 'none';
     });
     const chip = document.getElementById("modeChip"); if(chip) chip.innerText = "Preparación";
+  }else if(currentUser?.rol === 'vendedor'){
+    document.querySelectorAll('.nav button').forEach(b=>{
+      b.style.display = b.textContent.includes('Cargar pedido') ? '' : 'none';
+    });
+    const chip = document.getElementById("modeChip"); if(chip) chip.innerText = "Vendedora";
   }
 }
+
 function renderUsuarios(){
   const cont = document.getElementById("tablaUsuarios");
   if(!cont) return;
-  cont.innerHTML = table(["Usuario","Nombre","Acceso"], APP_USERS.map(u=>[u.usuario,u.nombre,u.rol==='admin'?'Todo el sistema':'Solo preparación']));
+  cont.innerHTML = table(["Usuario","Nombre","Acceso"], APP_USERS.map(u=>[
+    u.usuario,
+    u.nombre,
+    u.rol==='admin' ? 'Todo el sistema' : (u.rol==='preparacion' ? 'Solo preparación' : 'Solo cargar pedidos')
+  ]));
 }
 
 
@@ -955,7 +970,11 @@ function guardarConfig(){
   toast("Configuración guardada.", "success");
 }
 function go(id,btn){
-  if(!usuarioPuede(id)){ toast("Este usuario solo tiene acceso a Preparación."); id="preparacion"; }
+  if(!usuarioPuede(id)){
+    if(currentUser?.rol === "preparacion"){ toast("Este usuario solo tiene acceso a Preparación."); id="preparacion"; }
+    else if(currentUser?.rol === "vendedor"){ toast("Este usuario solo puede cargar pedidos."); id="nuevoPedido"; }
+    else { id="dashboard"; }
+  }
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
   document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
