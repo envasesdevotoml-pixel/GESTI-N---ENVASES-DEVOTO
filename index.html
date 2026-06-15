@@ -748,13 +748,17 @@ const APP_USERS = [
   {usuario:"Ionatan", password:"Borrachito 12", nombre:"Ionatan", rol:"admin"},
   {usuario:"Alex", password:"10101964", nombre:"Alex", rol:"admin"},
   {usuario:"envasesdevoto", password:"envasesdevoto", nombre:"Depósito", rol:"preparacion"}
+  {usuario:"sofialbanese", password:"301294", nombre:"Sofía Albanese", rol:"vendedor"}
+];
 ];
 let currentUser = null;
 
 function usuarioPuede(seccion){
   if(!currentUser) return false;
   if(currentUser.rol === "admin") return true;
-  return seccion === "preparacion";
+  if(currentUser.rol === "preparacion") return seccion === "preparacion";
+  if(currentUser.rol === "vendedor") return seccion === "cargar";
+  return false;
 }
 function login(){
   const u = document.getElementById("loginUser").value.trim();
