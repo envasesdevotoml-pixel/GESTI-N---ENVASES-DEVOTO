@@ -605,7 +605,7 @@ function toast(msg, tipo='', duracion=3500){
           </div>
           <div>
             <label>Color / variante</label>
-            <input id="corteVariante" list="corteVariantesSugeridas" placeholder="Ej: 3 mm negro" onfocus="actualizarVariantesCorte()">
+            <input id="corteVariante" list="corteVariantesSugeridas" placeholder="Elegir color" onfocus="actualizarVariantesCorte()">
             <datalist id="corteVariantesSugeridas">
       <option>Negro</option>
 <option>Gris</option>
@@ -3914,19 +3914,7 @@ function actualizarVariantesCorte(){
   const dl = document.getElementById('corteVariantesSugeridas');
   if(!dl) return;
   const p = findProduct(document.getElementById('corteModelo')?.value || '');
- const base = [
-  'Negro',
-  'Gris',
-  'Marrón Oscuro',
-  'Marrón Claro',
-  'Blanco',
-  'Surtidos'
-];
-  const extras = [];
-  if(p){
-    [p.categoria, p.medidas].filter(Boolean).forEach(v=>extras.push(v));
-  }
-  const opciones = [...new Set([...base, ...extras].filter(Boolean))];
+  const opciones = ['Negro','Gris','Marrón Oscuro','Marrón Claro','Blanco','Surtidos'];
   dl.innerHTML = opciones.map(v=>`<option>${escapeHtml(v)}</option>`).join('');
 }
 
