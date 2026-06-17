@@ -334,11 +334,19 @@
 
 
     /* ===== Lista de corte ===== */
-    .corte-form{display:grid;grid-template-columns:1.4fr 1fr 140px auto;gap:10px;align-items:end}
+    .corte-form{display:grid;grid-template-columns:1.7fr 1fr 150px 190px auto;gap:10px;align-items:end}
     .corte-form label{display:block;font-size:12px;font-weight:900;color:#555;margin-bottom:6px}
     .corte-row.done td{background:#eaf8f0;text-decoration:line-through;color:#64748b}
-    .corte-check{width:26px;height:26px;cursor:pointer}
-    @media(max-width:900px){.corte-form{grid-template-columns:1fr}}
+    .corte-check{width:30px;height:30px;cursor:pointer}
+    .corte-qty{display:grid;grid-template-columns:48px 1fr 48px;gap:6px;align-items:center}
+    .corte-qty input{text-align:center;font-size:18px;font-weight:900}
+    .corte-qty button{padding:12px 0;border-radius:10px;font-size:20px}
+    .destino-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 10px;font-weight:900;font-size:12px;border:1px solid currentColor;white-space:nowrap}
+    .destino-moto{background:#ffecec;color:#c62828;border-color:#ffb6b6}
+    .destino-correo{background:#eaf4ff;color:#0f6fd4;border-color:#9dcbff}
+    .destino-mayorista{background:#f3e8ff;color:#6b21a8;border-color:#d8b4fe}
+    @media(max-width:1100px){.corte-form{grid-template-columns:1fr 1fr}}
+    @media(max-width:700px){.corte-form{grid-template-columns:1fr}.corte-qty{grid-template-columns:58px 1fr 58px}.corte-qty button{font-size:24px;padding:14px 0}}
 
 </style>
 </head>
@@ -582,11 +590,12 @@ function toast(msg, tipo='', duracion=3500){
         <div class="corte-form">
           <div>
             <label>Modelo / producto</label>
-            <input id="corteModelo" list="productosSugeridos" placeholder="Ej: Caja de té x9">
+            <input id="corteModelo" list="corteProductosSugeridos" placeholder="Buscar producto..." oninput="actualizarSugerenciasCorte(); actualizarVariantesCorte()" onfocus="actualizarSugerenciasCorte()">
+            <datalist id="corteProductosSugeridos"></datalist>
           </div>
           <div>
             <label>Color / variante</label>
-            <input id="corteVariante" list="corteVariantesSugeridas" placeholder="Ej: 3 mm negro">
+            <input id="corteVariante" list="corteVariantesSugeridas" placeholder="Ej: 3 mm negro" onfocus="actualizarVariantesCorte()">
             <datalist id="corteVariantesSugeridas">
               <option>3 mm colores surtidos</option>
               <option>3 mm negro</option>
@@ -597,9 +606,21 @@ function toast(msg, tipo='', duracion=3500){
           </div>
           <div>
             <label>Cantidad</label>
-            <input id="corteCantidad" type="number" min="1" value="1">
+            <div class="corte-qty">
+              <button type="button" class="btn secondary" onclick="cambiarCantidadCorte(-1)">−</button>
+              <input id="corteCantidad" type="number" min="1" value="1">
+              <button type="button" class="btn secondary" onclick="cambiarCantidadCorte(1)">+</button>
+            </div>
           </div>
-          <button class="btn success" onclick="agregarListaCorte()">Agregar</button>
+          <div>
+            <label>Destino / prioridad</label>
+            <select id="corteDestino">
+              <option value="Moto">🛵 Moto</option>
+              <option value="Correo">📦 Correo</option>
+              <option value="Mayorista" selected>🏭 Mayorista</option>
+            </select>
+          </div>
+          <button class="btn success" onclick="agregarListaCorte()">Agregar a corte</button>
         </div>
       </div>
       <div class="toolbar">
@@ -1032,7 +1053,7 @@ async function cargarDesdeSupabase(){
     try{
       const lc = await sb.from("lista_corte").select("*").order("created_at",{ascending:false});
       if(!lc.error && lc.data) listaCorte = lc.data.map(x=>({
-        id:x.id, modelo:x.modelo||'', variante:x.variante||'', cantidad:Number(x.cantidad||0),
+        id:x.id, modelo:x.modelo||'', variante:x.variante||'', destino:x.destino||'Mayorista', cantidad:Number(x.cantidad||0),
         cortado:!!x.cortado, usuario_nombre:x.usuario_nombre||'', created_at:x.created_at||x.fecha||new Date().toISOString()
       }));
     }catch(e){ console.warn('Lista de corte local: falta tabla lista_corte en Supabase.', e); }
@@ -3813,14 +3834,66 @@ window.marcarComisionPendiente = marcarComisionPendiente;
 
 /* ===== Lista de corte simple ===== */
 function normalizarCorteTexto(v){ return String(v||'').trim(); }
-function corteKey(modelo, variante){ return (normalizarCorteTexto(modelo)+'||'+normalizarCorteTexto(variante)).toLowerCase(); }
+function corteDestinoNormalizado(v){
+  const d = normalizarCorteTexto(v) || 'Mayorista';
+  if(/moto/i.test(d)) return 'Moto';
+  if(/correo/i.test(d)) return 'Correo';
+  return 'Mayorista';
+}
+function corteKey(modelo, variante, destino){ return (normalizarCorteTexto(modelo)+'||'+normalizarCorteTexto(variante)+'||'+corteDestinoNormalizado(destino)).toLowerCase(); }
+function prioridadDestino(d){ d=corteDestinoNormalizado(d); return d==='Moto'?1:(d==='Correo'?2:3); }
+function destinoBadge(d){
+  d=corteDestinoNormalizado(d);
+  const cls = d==='Moto' ? 'destino-moto' : (d==='Correo' ? 'destino-correo' : 'destino-mayorista');
+  const icon = d==='Moto' ? '🛵' : (d==='Correo' ? '📦' : '🏭');
+  return `<span class="destino-badge ${cls}">${icon} ${escapeHtml(d)}</span>`;
+}
 function fechaCortaCorte(f){ try{return new Date(f).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return '';} }
+
+function actualizarSugerenciasCorte(){
+  const lista = document.getElementById('corteProductosSugeridos');
+  if(!lista) return;
+  const q = normalizarBusqueda(document.getElementById('corteModelo')?.value || '');
+  const resultados = (productos||[])
+    .filter(p=>{
+      const texto = normalizarBusqueda([p.sku, p.codigo_barras, p.nombre, p.categoria, p.medidas].filter(Boolean).join(' '));
+      return !q || texto.includes(q);
+    })
+    .slice(0, 40);
+  lista.innerHTML = resultados.map(p=>{
+    const value = `${p.sku || ''} - ${p.nombre || ''}`.trim();
+    const extra = [p.categoria, p.medidas, p.codigo_barras].filter(Boolean).join(' · ');
+    return `<option value="${escapeHtml(value)}">${escapeHtml(extra)}</option>`;
+  }).join('');
+}
+
+function actualizarVariantesCorte(){
+  const dl = document.getElementById('corteVariantesSugeridas');
+  if(!dl) return;
+  const p = findProduct(document.getElementById('corteModelo')?.value || '');
+  const base = ['3 mm colores surtidos','3 mm negro','5 mm negro','Blanco','Marrón','Negro','Natural'];
+  const extras = [];
+  if(p){
+    [p.categoria, p.medidas].filter(Boolean).forEach(v=>extras.push(v));
+  }
+  const opciones = [...new Set([...base, ...extras].filter(Boolean))];
+  dl.innerHTML = opciones.map(v=>`<option>${escapeHtml(v)}</option>`).join('');
+}
+
+function cambiarCantidadCorte(delta){
+  const inp = document.getElementById('corteCantidad');
+  if(!inp) return;
+  const val = Math.max(1, Number(inp.value||1) + Number(delta||0));
+  inp.value = val;
+}
+
 async function guardarListaCorteSupabase(item){
   if(!sb) return false;
   try{
     const payload = {
       modelo:item.modelo,
       variante:item.variante,
+      destino:corteDestinoNormalizado(item.destino),
       cantidad:Number(item.cantidad||0),
       cortado:!!item.cortado,
       usuario_nombre:item.usuario_nombre || (currentUser?.nombre || ''),
@@ -3838,23 +3911,26 @@ async function guardarListaCorteSupabase(item){
     return true;
   }catch(e){
     console.warn('No se pudo guardar en Supabase lista_corte. Queda guardado local.', e);
+    toast('No se pudo guardar en Supabase. Revisá si agregaste la columna destino.', 'warning', 5000);
     return false;
   }
 }
 async function agregarListaCorte(){
-  const modelo = normalizarCorteTexto(document.getElementById('corteModelo')?.value);
+  const prodElegido = findProduct(document.getElementById('corteModelo')?.value || '');
+  const modelo = prodElegido ? prodElegido.nombre : normalizarCorteTexto(document.getElementById('corteModelo')?.value);
   const variante = normalizarCorteTexto(document.getElementById('corteVariante')?.value);
+  const destino = corteDestinoNormalizado(document.getElementById('corteDestino')?.value);
   const cantidad = Number(document.getElementById('corteCantidad')?.value || 0);
-  if(!modelo) return toast('Poné el modelo/producto para cortar.', 'warning');
+  if(!modelo) return toast('Elegí el modelo/producto para cortar.', 'warning');
   if(!variante) return toast('Elegí o escribí la variante/color.', 'warning');
   if(!cantidad || cantidad < 1) return toast('La cantidad debe ser mayor a 0.', 'warning');
-  const key = corteKey(modelo,variante);
-  let item = listaCorte.find(x=>!x.cortado && corteKey(x.modelo,x.variante)===key);
+  const key = corteKey(modelo,variante,destino);
+  let item = listaCorte.find(x=>!x.cortado && corteKey(x.modelo,x.variante,x.destino)===key);
   if(item){
     item.cantidad = Number(item.cantidad||0) + cantidad;
     item.updated_at = new Date().toISOString();
   }else{
-    item = { id:Date.now(), modelo, variante, cantidad, cortado:false, usuario_nombre:currentUser?.nombre||'', created_at:new Date().toISOString() };
+    item = { id:Date.now(), modelo, variante, destino, cantidad, cortado:false, usuario_nombre:currentUser?.nombre||'', created_at:new Date().toISOString() };
     listaCorte.unshift(item);
   }
   saveLocal();
@@ -3863,6 +3939,7 @@ async function agregarListaCorte(){
   document.getElementById('corteModelo').value='';
   document.getElementById('corteCantidad').value='1';
   renderListaCorte();
+  actualizarSugerenciasCorte();
   toast('Agregado a lista de corte.', 'success');
 }
 async function toggleCorte(id, checked){
@@ -3895,15 +3972,19 @@ function renderListaCorte(){
   if(!cont) return;
   const q = String(document.getElementById('buscarCorte')?.value || '').toLowerCase();
   const data = (listaCorte||[]).filter(x=>{
-    const txt = `${x.modelo||''} ${x.variante||''} ${x.usuario_nombre||''}`.toLowerCase();
+    const txt = `${x.modelo||''} ${x.variante||''} ${x.destino||''} ${x.usuario_nombre||''}`.toLowerCase();
     return !q || txt.includes(q);
-  }).sort((a,b)=>(a.cortado===b.cortado?0:(a.cortado?1:-1)) || String(b.created_at||'').localeCompare(String(a.created_at||'')));
+  }).sort((a,b)=>{
+    if(!!a.cortado !== !!b.cortado) return a.cortado ? 1 : -1;
+    const pa = prioridadDestino(a.destino), pb = prioridadDestino(b.destino);
+    if(pa !== pb) return pa - pb;
+    return String(b.created_at||'').localeCompare(String(a.created_at||''));
+  });
   if(!data.length){ cont.innerHTML = '<div class="card empty">No hay nada cargado en la lista de corte.</div>'; return; }
-  cont.innerHTML = '<table><thead><tr><th style="width:70px">Cortado</th><th>Modelo</th><th>Variante/color</th><th style="width:110px">Cantidad</th><th>Cargó</th><th>Fecha</th></tr></thead><tbody>'+
-    data.map(x=>`<tr class="${x.cortado?'corte-row done':'corte-row'}"><td><input class="corte-check" type="checkbox" ${x.cortado?'checked':''} onchange="toggleCorte(${JSON.stringify(x.id)}, this.checked)"></td><td>${escapeHtml(x.modelo||'')}</td><td>${escapeHtml(x.variante||'')}</td><td><b>${Number(x.cantidad||0)}</b></td><td>${escapeHtml(x.usuario_nombre||'')}</td><td>${fechaCortaCorte(x.created_at)}</td></tr>`).join('')+
+  cont.innerHTML = '<table><thead><tr><th style="width:70px">Cortado</th><th>Destino</th><th>Modelo</th><th>Variante/color</th><th style="width:110px">Cantidad</th><th>Cargó</th><th>Fecha</th></tr></thead><tbody>'+
+    data.map(x=>`<tr class="${x.cortado?'corte-row done':'corte-row'}"><td><input class="corte-check" type="checkbox" ${x.cortado?'checked':''} onchange="toggleCorte(${JSON.stringify(x.id)}, this.checked)"></td><td>${destinoBadge(x.destino)}</td><td>${escapeHtml(x.modelo||'')}</td><td>${escapeHtml(x.variante||'')}</td><td><b>${Number(x.cantidad||0)}</b></td><td>${escapeHtml(x.usuario_nombre||'')}</td><td>${fechaCortaCorte(x.created_at)}</td></tr>`).join('')+
     '</tbody></table>';
 }
-
 init();
 </script>
 </body>
