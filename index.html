@@ -334,13 +334,22 @@
 
 
     /* ===== Lista de corte ===== */
-    .corte-form{display:grid;grid-template-columns:1.7fr 1fr 150px 190px auto;gap:10px;align-items:end}
-    .corte-form label{display:block;font-size:12px;font-weight:900;color:#555;margin-bottom:6px}
+    .corte-form{display:grid;grid-template-columns:minmax(260px,1.6fr) minmax(220px,1fr) 220px 220px auto;gap:12px;align-items:end}
+    .corte-form label{display:block;font-size:12px;font-weight:900;color:#555;margin-bottom:6px;white-space:nowrap}
+    .corte-form input,.corte-form select{width:100%;height:48px}
+    .corte-form .btn.success{height:48px;white-space:nowrap}
     .corte-row.done td{background:#eaf8f0;text-decoration:line-through;color:#64748b}
     .corte-check{width:30px;height:30px;cursor:pointer}
-    .corte-qty{display:grid;grid-template-columns:48px 1fr 48px;gap:6px;align-items:center}
-    .corte-qty input{text-align:center;font-size:18px;font-weight:900}
-    .corte-qty button{padding:12px 0;border-radius:10px;font-size:20px}
+    .corte-qty{display:grid;grid-template-columns:52px 1fr 52px;gap:6px;align-items:center}
+    .corte-qty input{text-align:center;font-size:18px;font-weight:900;min-width:72px}
+    .corte-qty button{padding:0;border-radius:10px;font-size:22px;height:48px}
+    .corte-picker{position:relative}
+    .corte-dropdown{display:none;position:absolute;left:0;right:0;top:76px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 35px rgba(15,23,42,.16);z-index:60;max-height:310px;overflow:auto}
+    .corte-dropdown.show{display:block}
+    .corte-option{padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer;background:#fff}
+    .corte-option:hover{background:#eef4ff}
+    .corte-option b{display:block;color:#0f172a}
+    .corte-option small{color:#64748b}
     .destino-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 10px;font-weight:900;font-size:12px;border:1px solid currentColor;white-space:nowrap}
     .destino-moto{background:#ffecec;color:#c62828;border-color:#ffb6b6}
     .destino-correo{background:#eaf4ff;color:#0f6fd4;border-color:#9dcbff}
@@ -588,9 +597,10 @@ function toast(msg, tipo='', duracion=3500){
       <div class="card">
         <p class="small">Lista simple para que preparación cargue lo que falta cortar y los chicos de arriba lo tachen cuando esté cortado.</p>
         <div class="corte-form">
-          <div>
+          <div class="corte-picker">
             <label>Modelo / producto</label>
-            <input id="corteModelo" list="corteProductosSugeridos" placeholder="Buscar producto..." oninput="actualizarSugerenciasCorte(); actualizarVariantesCorte()" onfocus="actualizarSugerenciasCorte()">
+            <input id="corteModelo" autocomplete="off" placeholder="Buscar producto..." oninput="actualizarSugerenciasCorte(); actualizarVariantesCorte()" onfocus="actualizarSugerenciasCorte()">
+            <div id="corteProductosDropdown" class="corte-dropdown"></div>
             <datalist id="corteProductosSugeridos"></datalist>
           </div>
           <div>
@@ -3852,20 +3862,52 @@ function fechaCortaCorte(f){ try{return new Date(f).toLocaleString('es-AR',{day:
 
 function actualizarSugerenciasCorte(){
   const lista = document.getElementById('corteProductosSugeridos');
-  if(!lista) return;
-  const q = normalizarBusqueda(document.getElementById('corteModelo')?.value || '');
+  const drop = document.getElementById('corteProductosDropdown');
+  const input = document.getElementById('corteModelo');
+  if(!input) return;
+  const q = normalizarBusqueda(input.value || '');
   const resultados = (productos||[])
     .filter(p=>{
       const texto = normalizarBusqueda([p.sku, p.codigo_barras, p.nombre, p.categoria, p.medidas].filter(Boolean).join(' '));
       return !q || texto.includes(q);
     })
-    .slice(0, 40);
-  lista.innerHTML = resultados.map(p=>{
-    const value = `${p.sku || ''} - ${p.nombre || ''}`.trim();
-    const extra = [p.categoria, p.medidas, p.codigo_barras].filter(Boolean).join(' · ');
-    return `<option value="${escapeHtml(value)}">${escapeHtml(extra)}</option>`;
-  }).join('');
+    .slice(0, 50);
+
+  if(lista){
+    lista.innerHTML = resultados.map(p=>{
+      const value = `${p.sku || ''} - ${p.nombre || ''}`.trim();
+      const extra = [p.categoria, p.medidas, p.codigo_barras].filter(Boolean).join(' · ');
+      return `<option value="${escapeHtml(value)}">${escapeHtml(extra)}</option>`;
+    }).join('');
+  }
+
+  if(drop){
+    if(!resultados.length){
+      drop.innerHTML = '<div class="corte-option"><small>No encontré productos cargados. Revisá la pestaña Productos o sincronizá.</small></div>';
+    }else{
+      drop.innerHTML = resultados.map(p=>{
+        const value = `${p.sku || ''} - ${p.nombre || ''}`.trim();
+        const extra = [p.categoria, p.medidas, p.codigo_barras].filter(Boolean).join(' · ');
+        return `<div class="corte-option" onclick="seleccionarProductoCorte('${escapeHtml(String(value)).replace(/'/g,'&#39;')}')"><b>${escapeHtml(p.nombre||'Sin nombre')}</b><small>${escapeHtml([p.sku, extra].filter(Boolean).join(' · '))}</small></div>`;
+      }).join('');
+    }
+    drop.classList.add('show');
+  }
 }
+
+function seleccionarProductoCorte(value){
+  const input = document.getElementById('corteModelo');
+  const drop = document.getElementById('corteProductosDropdown');
+  if(input) input.value = value;
+  if(drop) drop.classList.remove('show');
+  actualizarVariantesCorte();
+}
+
+document.addEventListener('click', function(e){
+  const picker = document.querySelector('.corte-picker');
+  const drop = document.getElementById('corteProductosDropdown');
+  if(picker && drop && !picker.contains(e.target)) drop.classList.remove('show');
+});
 
 function actualizarVariantesCorte(){
   const dl = document.getElementById('corteVariantesSugeridas');
