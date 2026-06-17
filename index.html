@@ -3914,7 +3914,14 @@ function actualizarVariantesCorte(){
   const dl = document.getElementById('corteVariantesSugeridas');
   if(!dl) return;
   const p = findProduct(document.getElementById('corteModelo')?.value || '');
-  const base = ['3 mm colores surtidos','3 mm negro','5 mm negro','Blanco','Marrón','Negro','Natural'];
+ const base = [
+  'Negro',
+  'Gris',
+  'Marrón Oscuro',
+  'Marrón Claro',
+  'Blanco',
+  'Surtidos'
+];
   const extras = [];
   if(p){
     [p.categoria, p.medidas].filter(Boolean).forEach(v=>extras.push(v));
