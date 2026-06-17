@@ -331,6 +331,15 @@
       .commercial-grid{grid-template-columns:1fr}
       .metric-value{font-size:22px}
     }
+
+
+    /* ===== Lista de corte ===== */
+    .corte-form{display:grid;grid-template-columns:1.4fr 1fr 140px auto;gap:10px;align-items:end}
+    .corte-form label{display:block;font-size:12px;font-weight:900;color:#555;margin-bottom:6px}
+    .corte-row.done td{background:#eaf8f0;text-decoration:line-through;color:#64748b}
+    .corte-check{width:26px;height:26px;cursor:pointer}
+    @media(max-width:900px){.corte-form{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -363,6 +372,7 @@ function toast(msg, tipo='', duracion=3500){
       <button onclick="go('nuevoPedido',this)">🛒 Cargar pedido</button>
       <button onclick="go('pedidos',this)">📋 Pedidos</button>
       <button onclick="go('preparacion',this)">📦 Preparación</button>
+      <button onclick="go('listaCorte',this)">✂️ Lista de corte</button>
       <button onclick="go('productos',this)">🏷️ Productos</button>
       <button onclick="go('clientes',this)">👥 Clientes</button>
       <button onclick="go('vendedores',this)">👨‍💼 Vendedores</button>
@@ -565,6 +575,41 @@ function toast(msg, tipo='', duracion=3500){
       <div id="tablaPreparacion"></div>
     </section>
 
+    <section id="listaCorte" class="section">
+      <h1>Lista de corte</h1>
+      <div class="card">
+        <p class="small">Lista simple para que preparación cargue lo que falta cortar y los chicos de arriba lo tachen cuando esté cortado.</p>
+        <div class="corte-form">
+          <div>
+            <label>Modelo / producto</label>
+            <input id="corteModelo" list="productosSugeridos" placeholder="Ej: Caja de té x9">
+          </div>
+          <div>
+            <label>Color / variante</label>
+            <input id="corteVariante" list="corteVariantesSugeridas" placeholder="Ej: 3 mm negro">
+            <datalist id="corteVariantesSugeridas">
+              <option>3 mm colores surtidos</option>
+              <option>3 mm negro</option>
+              <option>5 mm negro</option>
+              <option>Blanco</option>
+              <option>Marrón</option>
+            </datalist>
+          </div>
+          <div>
+            <label>Cantidad</label>
+            <input id="corteCantidad" type="number" min="1" value="1">
+          </div>
+          <button class="btn success" onclick="agregarListaCorte()">Agregar</button>
+        </div>
+      </div>
+      <div class="toolbar">
+        <input id="buscarCorte" placeholder="Buscar en lista de corte..." oninput="renderListaCorte()">
+        <button class="btn secondary" onclick="renderListaCorte()">Actualizar</button>
+        <button class="btn danger" onclick="borrarCortados()">Borrar cortados</button>
+      </div>
+      <div id="tablaListaCorte"></div>
+    </section>
+
     <section id="productos" class="section">
       <h1>Productos</h1>
       <div class="toolbar">
@@ -750,7 +795,7 @@ const APP_USERS = [
   {usuario:"Thay", password:"0104", nombre:"Thay", rol:"admin", activo:true},
   {usuario:"Ionatan", password:"Borrachito 12", nombre:"Ionatan", rol:"admin", activo:true},
   {usuario:"Alex", password:"10101964", nombre:"Alex", rol:"admin", activo:true},
-  {usuario:"envasesdevoto", password:"envasesdevoto", nombre:"Depósito", rol:"preparacion", activo:true},
+  {usuario:"envasesdevoto", password:"envasesdevoto", nombre:"Envases Devoto", rol:"produccion", activo:true},
   {usuario:"sofialbanese", password:"301294", nombre:"Sofia Albanese", rol:"vendedor", activo:true}
 ];
 let currentUser = null;
@@ -758,7 +803,8 @@ let currentUser = null;
 function usuarioPuede(seccion){
   if(!currentUser) return false;
   if(currentUser.rol === "admin") return true;
-  if(currentUser.rol === "preparacion") return seccion === "preparacion";
+  if(currentUser.rol === "produccion") return ["preparacion","listaCorte"].includes(seccion);
+  if((currentUser.rol === "preparacion" || currentUser.rol === "produccion")) return ["preparacion","listaCorte"].includes(seccion);
   if(currentUser.rol === "vendedor") return seccion === "nuevoPedido";
   return false;
 }
@@ -814,7 +860,7 @@ async function login(){
   localStorage.setItem("ed_current_user", JSON.stringify(currentUser));
   document.getElementById("loginOverlay").style.display = "none";
   aplicarPermisosUsuario();
-  if(currentUser.rol === "preparacion") modoDeposito();
+  if((currentUser.rol === "preparacion" || currentUser.rol === "produccion") || currentUser.rol === "produccion") modoDeposito();
   else if(currentUser.rol === "vendedor") go("nuevoPedido", document.querySelector('.nav button[onclick*="nuevoPedido"]'));
   else go("dashboard", document.querySelector('.nav button'));
 }
@@ -828,27 +874,29 @@ function cargarSesion(){
   if(!currentUser){ document.getElementById("loginOverlay").style.display = "flex"; return; }
   aplicarPermisosUsuario();
   setTimeout(()=>{
-    if(currentUser?.rol === "preparacion") modoDeposito();
+    if((currentUser?.rol === "preparacion" || currentUser?.rol === "produccion") || currentUser?.rol === "produccion") modoDeposito();
     if(currentUser?.rol === "vendedor") go("nuevoPedido", document.querySelector('.nav button[onclick*="nuevoPedido"]'));
   }, 0);
 }
 function aplicarPermisosUsuario(){
   const box = document.getElementById("userBox");
   if(box && currentUser){
-    const nombreRol = currentUser.rol==='admin' ? 'Administrador' : (currentUser.rol==='preparacion' ? 'Preparación' : 'Vendedora');
+    const nombreRol = currentUser.rol==='admin' ? 'Administrador' : (currentUser.rol==='produccion' ? 'Producción' : (currentUser.rol==='preparacion' ? 'Preparación' : 'Vendedora'));
     box.innerHTML = `<div><span class="avatar">${currentUser.nombre.slice(0,1).toUpperCase()}</span><b>${currentUser.nombre}</b><br><span class="small">${nombreRol}</span></div><button class="btn logout" onclick="logout()">Cerrar sesión</button>`;
   }
   document.querySelectorAll('[data-admin-only="1"]').forEach(el=>{ el.style.display = currentUser?.rol === 'admin' ? '' : 'none'; });
-  if(currentUser?.rol === 'preparacion'){
+  if(currentUser?.rol === 'produccion' || (currentUser?.rol === 'preparacion' || currentUser?.rol === 'produccion')){
     document.querySelectorAll('.nav button').forEach(b=>{
-      b.style.display = b.textContent.includes('Preparación') ? '' : 'none';
+      b.style.display = (b.textContent.includes('Preparación') || b.textContent.includes('Lista de corte')) ? '' : 'none';
     });
-    const chip = document.getElementById("modeChip"); if(chip) chip.innerText = "Preparación";
+    const chip = document.getElementById("modeChip"); if(chip) chip.innerText = "Producción";
   }else if(currentUser?.rol === 'vendedor'){
     document.querySelectorAll('.nav button').forEach(b=>{
       b.style.display = b.textContent.includes('Cargar pedido') ? '' : 'none';
     });
     const chip = document.getElementById("modeChip"); if(chip) chip.innerText = "Vendedora";
+  }else{
+    document.querySelectorAll('.nav button').forEach(b=>{ b.style.display = ''; });
   }
 }
 
@@ -878,7 +926,7 @@ async function renderUsuarios(){
   cont.innerHTML = table(["Usuario","Nombre","Acceso"], usuarios.map(u=>[
     u.usuario,
     (u.nombre || u.usuario) + (u.activo === false ? " (inactivo)" : ""),
-    u.rol==='admin' ? 'Todo el sistema' : (u.rol==='preparacion' ? 'Solo preparación' : 'Solo cargar pedidos')
+    u.rol==='admin' ? 'Todo el sistema' : ((u.rol==='produccion' || u.rol==='preparacion') ? 'Preparación + Lista de corte' : 'Solo cargar pedidos')
   ]));
 }
 
@@ -924,6 +972,7 @@ let productos = JSON.parse(localStorage.getItem("ed_productos") || "[]");
 let vendedores = JSON.parse(localStorage.getItem("ed_vendedores") || "[]");
 let clientes = JSON.parse(localStorage.getItem("ed_clientes") || "[]");
 let pedidos = JSON.parse(localStorage.getItem("ed_pedidos") || "[]");
+let listaCorte = JSON.parse(localStorage.getItem("ed_lista_corte") || "[]");
 let comisionesPagas = JSON.parse(localStorage.getItem("ed_comisiones_pagas") || "{}");
 let comisionesPagosManual = JSON.parse(localStorage.getItem("ed_comisiones_pagos_manual") || "{}");
 let historialPedidos = JSON.parse(localStorage.getItem("ed_historial_pedidos") || "{}");
@@ -937,6 +986,7 @@ function saveLocal(){
   localStorage.setItem("ed_vendedores",JSON.stringify(vendedores));
   localStorage.setItem("ed_clientes",JSON.stringify(clientes));
   localStorage.setItem("ed_pedidos",JSON.stringify(pedidos));
+  localStorage.setItem("ed_lista_corte",JSON.stringify(listaCorte));
   localStorage.setItem("ed_comisiones_pagas",JSON.stringify(comisionesPagas));
   localStorage.setItem("ed_comisiones_pagos_manual",JSON.stringify(comisionesPagosManual));
   localStorage.setItem("ed_historial_pedidos",JSON.stringify(historialPedidos));
@@ -978,6 +1028,14 @@ async function cargarDesdeSupabase(){
 
     const c = await sb.from("clientes").select("*").order("nombre");
     if(!c.error && c.data) clientes = c.data;
+
+    try{
+      const lc = await sb.from("lista_corte").select("*").order("created_at",{ascending:false});
+      if(!lc.error && lc.data) listaCorte = lc.data.map(x=>({
+        id:x.id, modelo:x.modelo||'', variante:x.variante||'', cantidad:Number(x.cantidad||0),
+        cortado:!!x.cortado, usuario_nombre:x.usuario_nombre||'', created_at:x.created_at||x.fecha||new Date().toISOString()
+      }));
+    }catch(e){ console.warn('Lista de corte local: falta tabla lista_corte en Supabase.', e); }
 
     const p = await sb
       .from("pedidos")
@@ -1059,7 +1117,7 @@ function guardarConfig(){
 }
 function go(id,btn){
   if(!usuarioPuede(id)){
-    if(currentUser?.rol === "preparacion"){ toast("Este usuario solo tiene acceso a Preparación."); id="preparacion"; }
+    if(currentUser?.rol === "produccion" || (currentUser?.rol === "preparacion" || currentUser?.rol === "produccion")){ toast("Este usuario solo tiene acceso a Preparación y Lista de corte."); id="preparacion"; }
     else if(currentUser?.rol === "vendedor"){ toast("Este usuario solo puede cargar pedidos."); id="nuevoPedido"; }
     else { id="dashboard"; }
   }
@@ -3441,6 +3499,7 @@ function renderAll(){
   renderDashboard();
   renderPedidos();
   renderPreparacion();
+  renderListaCorte();
   renderProductos();
   renderClientes();
   renderVendedores();
@@ -3750,6 +3809,100 @@ window.registrarPagoComisionManual = registrarPagoComisionManual;
 window.marcarComisionPagada = marcarComisionPagada;
 window.verPagosComision = verPagosComision;
 window.marcarComisionPendiente = marcarComisionPendiente;
+
+
+/* ===== Lista de corte simple ===== */
+function normalizarCorteTexto(v){ return String(v||'').trim(); }
+function corteKey(modelo, variante){ return (normalizarCorteTexto(modelo)+'||'+normalizarCorteTexto(variante)).toLowerCase(); }
+function fechaCortaCorte(f){ try{return new Date(f).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return '';} }
+async function guardarListaCorteSupabase(item){
+  if(!sb) return false;
+  try{
+    const payload = {
+      modelo:item.modelo,
+      variante:item.variante,
+      cantidad:Number(item.cantidad||0),
+      cortado:!!item.cortado,
+      usuario_nombre:item.usuario_nombre || (currentUser?.nombre || ''),
+      updated_at:new Date().toISOString()
+    };
+    if(item.id && String(item.id).length < 13){
+      const {error} = await sb.from('lista_corte').update(payload).eq('id', item.id);
+      if(error) throw error;
+    }else{
+      payload.created_at = item.created_at || new Date().toISOString();
+      const {data,error} = await sb.from('lista_corte').insert(payload).select().limit(1);
+      if(error) throw error;
+      if(data && data[0]) item.id = data[0].id;
+    }
+    return true;
+  }catch(e){
+    console.warn('No se pudo guardar en Supabase lista_corte. Queda guardado local.', e);
+    return false;
+  }
+}
+async function agregarListaCorte(){
+  const modelo = normalizarCorteTexto(document.getElementById('corteModelo')?.value);
+  const variante = normalizarCorteTexto(document.getElementById('corteVariante')?.value);
+  const cantidad = Number(document.getElementById('corteCantidad')?.value || 0);
+  if(!modelo) return toast('Poné el modelo/producto para cortar.', 'warning');
+  if(!variante) return toast('Elegí o escribí la variante/color.', 'warning');
+  if(!cantidad || cantidad < 1) return toast('La cantidad debe ser mayor a 0.', 'warning');
+  const key = corteKey(modelo,variante);
+  let item = listaCorte.find(x=>!x.cortado && corteKey(x.modelo,x.variante)===key);
+  if(item){
+    item.cantidad = Number(item.cantidad||0) + cantidad;
+    item.updated_at = new Date().toISOString();
+  }else{
+    item = { id:Date.now(), modelo, variante, cantidad, cortado:false, usuario_nombre:currentUser?.nombre||'', created_at:new Date().toISOString() };
+    listaCorte.unshift(item);
+  }
+  saveLocal();
+  await guardarListaCorteSupabase(item);
+  saveLocal();
+  document.getElementById('corteModelo').value='';
+  document.getElementById('corteCantidad').value='1';
+  renderListaCorte();
+  toast('Agregado a lista de corte.', 'success');
+}
+async function toggleCorte(id, checked){
+  const item = listaCorte.find(x=>String(x.id)===String(id));
+  if(!item) return;
+  item.cortado = !!checked;
+  item.updated_at = new Date().toISOString();
+  item.cortado_por = checked ? (currentUser?.nombre||'') : '';
+  saveLocal();
+  await guardarListaCorteSupabase(item);
+  renderListaCorte();
+}
+async function borrarCortados(){
+  const cortados = listaCorte.filter(x=>x.cortado);
+  if(!cortados.length) return toast('No hay cortados para borrar.', 'warning');
+  if(!confirm('Borrar todos los ítems ya cortados?')) return;
+  if(sb){
+    try{
+      const ids = cortados.map(x=>x.id).filter(x=>String(x).length < 13);
+      if(ids.length){ await sb.from('lista_corte').delete().in('id', ids); }
+    }catch(e){ console.warn('No se pudieron borrar cortados en Supabase.', e); }
+  }
+  listaCorte = listaCorte.filter(x=>!x.cortado);
+  saveLocal();
+  renderListaCorte();
+  toast('Cortados borrados.', 'success');
+}
+function renderListaCorte(){
+  const cont = document.getElementById('tablaListaCorte');
+  if(!cont) return;
+  const q = String(document.getElementById('buscarCorte')?.value || '').toLowerCase();
+  const data = (listaCorte||[]).filter(x=>{
+    const txt = `${x.modelo||''} ${x.variante||''} ${x.usuario_nombre||''}`.toLowerCase();
+    return !q || txt.includes(q);
+  }).sort((a,b)=>(a.cortado===b.cortado?0:(a.cortado?1:-1)) || String(b.created_at||'').localeCompare(String(a.created_at||'')));
+  if(!data.length){ cont.innerHTML = '<div class="card empty">No hay nada cargado en la lista de corte.</div>'; return; }
+  cont.innerHTML = '<table><thead><tr><th style="width:70px">Cortado</th><th>Modelo</th><th>Variante/color</th><th style="width:110px">Cantidad</th><th>Cargó</th><th>Fecha</th></tr></thead><tbody>'+
+    data.map(x=>`<tr class="${x.cortado?'corte-row done':'corte-row'}"><td><input class="corte-check" type="checkbox" ${x.cortado?'checked':''} onchange="toggleCorte(${JSON.stringify(x.id)}, this.checked)"></td><td>${escapeHtml(x.modelo||'')}</td><td>${escapeHtml(x.variante||'')}</td><td><b>${Number(x.cantidad||0)}</b></td><td>${escapeHtml(x.usuario_nombre||'')}</td><td>${fechaCortaCorte(x.created_at)}</td></tr>`).join('')+
+    '</tbody></table>';
+}
 
 init();
 </script>
