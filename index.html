@@ -1261,6 +1261,11 @@ function updateQty(i,v){
   pedidoActual[i].subtotal=pedidoActual[i].cantidad*pedidoActual[i].precio;
   renderPedidoActual();
 }
+function updatePrecio(i,v){
+  pedidoActual[i].precio=Number(v||0);
+  pedidoActual[i].subtotal=pedidoActual[i].cantidad*pedidoActual[i].precio;
+  renderPedidoActual();
+}
 function removeLine(i){pedidoActual.splice(i,1);renderPedidoActual()}
 function aplicarDescuentoPreset(){
   const sel = document.getElementById("pDescuentoPreset");
@@ -1293,7 +1298,7 @@ function renderPedidoActual(){
     <td>${l.sku}</td>
     <td>${l.nombre}<div class="small">${l.codigo_barras||''}</div></td>
     <td><input type="number" min="1" value="${l.cantidad}" onchange="updateQty(${i},this.value)"></td>
-    <td>${money(l.precio)}</td>
+    <td><input type="number" min="0" step="0.01" value="${Number(l.precio||0)}" onchange="updatePrecio(${i},this.value)" onfocus="this.select()"></td>
     <td>${money(l.subtotal)}</td>
     <td>${l.comision_diferida ? '<span class="badge green">SI</span>' : '<span class="badge">NO</span>'}</td>
     <td><button class="btn danger" onclick="removeLine(${i})">X</button></td>
@@ -3672,23 +3677,19 @@ function documentoRemitoGenerico(p, lineas, completo=true){
         <div><b>Dirección:</b> Pola 2241</div>
         <div><b>CUIT:</b> 30-71826487-8</div>
       </div>
-    </div>` : `
-    <div class="box">
-      <div style="font-size:22px;font-weight:900">REMITO</div>
-      <div class="nota">Documento no fiscal</div>
-    </div>`;
+    </div>` : `<div></div>`;
 
   const encabezadoTabla = tieneDescuento
     ? `<tr><th style="width:70px">SKU</th><th>Producto</th><th style="width:55px">Cant.</th><th style="width:88px">P. Lista</th><th style="width:62px">Desc.</th><th style="width:88px">P. Final</th><th style="width:92px">Subtotal</th></tr>`
     : `<tr><th style="width:80px">SKU</th><th>Producto</th><th style="width:60px">Cant.</th><th style="width:92px">P. Unit.</th><th style="width:92px">Subtotal</th></tr>`;
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Remito ${escapeHtml(p?.id||'')}</title>${estilosDocumento()}</head><body>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${completo ? 'Remito ' : ''}${escapeHtml(p?.id||'')}</title>${estilosDocumento()}</head><body>
     <div class="no-print"><button class="print-btn" onclick="window.print()">Imprimir / Guardar PDF</button></div>
     <div class="page">
       <div class="top">
         ${empresa}
         <div class="box">
-          <div class="remito-title">REMITO</div>
+          ${completo ? '<div class="remito-title">REMITO</div>' : ''}
           ${datosPedidoHTML(p)}
         </div>
       </div>
@@ -3777,7 +3778,7 @@ async function abrirRemito(id){
 async function exportarPedidoSimple(id){
   const pedido = pedidos.find(p=>String(p.id)===String(id));
   const lineas = await obtenerLineasPedido(id);
-  abrirDocumentoImprimible('Remito simple', documentoRemitoSimple(pedido, lineas));
+  abrirDocumentoImprimible('Documento simple', documentoRemitoSimple(pedido, lineas));
 }
 
 function renderPedidoTable(data){
