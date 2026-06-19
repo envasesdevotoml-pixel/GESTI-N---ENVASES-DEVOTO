@@ -510,7 +510,9 @@ function toast(msg, tipo='', duracion=3500){
               <th style="width:130px">SKU</th>
               <th>Producto</th>
               <th style="width:110px">Cantidad</th>
-              <th style="width:130px">Precio</th>
+              <th style="width:130px">P. Lista</th>
+              <th style="width:110px">Desc.</th>
+              <th style="width:130px">P. Final</th>
               <th style="width:130px">Subtotal</th>
               <th style="width:100px">Diferida</th>
               <th style="width:80px"></th>
@@ -522,7 +524,7 @@ function toast(msg, tipo='', duracion=3500){
           <h2>Totales del pedido</h2>
           <div class="commercial-grid">
             <div>
-              <label>Descuento %</label>
+              <label>Descuento por defecto</label>
               <select id="pDescuentoPreset" onchange="aplicarDescuentoPreset()">
                 <option value="0">0%</option>
                 <option value="5">5%</option>
@@ -533,8 +535,8 @@ function toast(msg, tipo='', duracion=3500){
               </select>
             </div>
             <div>
-              <label>Descuento manual</label>
-              <input id="pDescuento" type="number" min="0" step="0.01" value="0" oninput="renderPedidoActual()" placeholder="Ej: 7.5">
+              <label>Desc. manual por defecto</label>
+              <input id="pDescuento" type="number" min="0" step="0.01" value="0" placeholder="Ej: 7.5">
             </div>
             <div>
               <label>Ajuste %</label>
@@ -552,8 +554,7 @@ function toast(msg, tipo='', duracion=3500){
             </div>
           </div>
           <div class="commercial-summary">
-            <div>Subtotal productos</div><div id="pedidoSubtotal">$0</div>
-            <div>Descuento</div><div id="pedidoDescuentoImporte" class="negative">-$0</div>
+            <div>Total productos</div><div id="pedidoSubtotal">$0</div>
             <div>Base comisión</div><div id="pedidoBaseComision">$0</div>
             <div>Comisión vendedor</div><div id="pedidoComisionPreview">$0</div>
             <div>Base diferida</div><div id="pedidoBaseDiferida">$0</div>
@@ -561,7 +562,7 @@ function toast(msg, tipo='', duracion=3500){
             <div>Ajuste</div><div id="pedidoAjusteImporte" class="positive">+$0</div>
             <div class="final-label">Total final</div><div id="pedidoTotal" class="final-value">$0</div>
           </div>
-          <div class="small" style="margin-top:10px">Regla de comisión: Subtotal productos - Descuento = Base comisión. La diferida se calcula solo sobre productos marcados SI en Sheets. El ajuste % no suma comisión.</div>
+          <div class="small" style="margin-top:10px">El descuento se carga por producto. El subtotal de cada línea ya sale con el descuento aplicado. El ajuste % no suma comisión.</div>
         </div>
         <div class="toolbar" style="margin-top:16px">
           <button id="btnGuardarPedido" class="btn success" onclick="guardarPedido()">Guardar pedido</button>
@@ -1244,26 +1245,51 @@ function findProduct(q){
          productos.find(p=>normalizarBusqueda(p.sku) === norm || normalizarBusqueda(p.codigo_barras) === norm) ||
          productos.find(p=>normalizarBusqueda(`${p.sku || ''} - ${p.nombre || ''}`) === norm) ||
          productos.find(p=>normalizarBusqueda(p.nombre).includes(norm) || normalizarBusqueda(p.sku).includes(norm) || normalizarBusqueda(p.codigo_barras).includes(norm));
-}function addQuickProduct(){
+}
+function lineDiscount(l){
+  return Math.max(0, Number(l?.descuento_porcentaje ?? l?.descuento ?? 0) || 0);
+}
+function linePrecioFinal(l){
+  const precio = Number(l?.precio || 0);
+  return Math.max(0, precio - (precio * lineDiscount(l) / 100));
+}
+function recalcularLinea(l){
+  l.cantidad = Number(l.cantidad || 0);
+  l.precio = Number(l.precio || 0);
+  l.descuento_porcentaje = lineDiscount(l);
+  l.precio_final = linePrecioFinal(l);
+  l.subtotal = l.cantidad * l.precio_final;
+  l.descuento_importe = (l.cantidad * l.precio) - l.subtotal;
+  return l;
+}
+function descuentoPorDefecto(){
+  return Math.max(0, Number(document.getElementById("pDescuento")?.value || 0) || 0);
+}
+function updateDescuentoLinea(i,v){
+  pedidoActual[i].descuento_porcentaje = Math.max(0, Number(v||0));
+  recalcularLinea(pedidoActual[i]);
+  renderPedidoActual();
+}
+function addQuickProduct(){
   const q=document.getElementById("quickProduct").value;
   const qty=Number(document.getElementById("quickQty").value||1);
   const p=findProduct(q);
   if(!p) return toast("No encontré el producto.", "error");
   const existing=pedidoActual.find(x=>x.sku==p.sku);
-  if(existing){existing.cantidad += qty; existing.subtotal = existing.cantidad * existing.precio}
-  else pedidoActual.push({sku:p.sku,nombre:p.nombre,cantidad:qty,precio:Number(p.precio||0),subtotal:qty*Number(p.precio||0),codigo_barras:p.codigo_barras||'',comision_diferida:!!p.comision_diferida});
+  if(existing){existing.cantidad += qty; recalcularLinea(existing)}
+  else pedidoActual.push(recalcularLinea({sku:p.sku,nombre:p.nombre,cantidad:qty,precio:Number(p.precio||0),descuento_porcentaje:descuentoPorDefecto(),codigo_barras:p.codigo_barras||'',comision_diferida:!!p.comision_diferida}));
   document.getElementById("quickProduct").value='';
   document.getElementById("quickQty").value=1;
   renderPedidoActual();
 }
 function updateQty(i,v){
   pedidoActual[i].cantidad=Number(v||0);
-  pedidoActual[i].subtotal=pedidoActual[i].cantidad*pedidoActual[i].precio;
+  recalcularLinea(pedidoActual[i]);
   renderPedidoActual();
 }
 function updatePrecio(i,v){
   pedidoActual[i].precio=Number(v||0);
-  pedidoActual[i].subtotal=pedidoActual[i].cantidad*pedidoActual[i].precio;
+  recalcularLinea(pedidoActual[i]);
   renderPedidoActual();
 }
 function removeLine(i){pedidoActual.splice(i,1);renderPedidoActual()}
@@ -1280,14 +1306,15 @@ function aplicarAjustePreset(){
   renderPedidoActual();
 }
 function recalcularTotalesPedido(){
+  pedidoActual.forEach(recalcularLinea);
   const subtotal = pedidoActual.reduce((a,l)=>a+Number(l.subtotal||0),0);
   const subtotal_diferida = pedidoActual.filter(l=>!!l.comision_diferida).reduce((a,l)=>a+Number(l.subtotal||0),0);
-  const descuento_porcentaje = Math.max(0, Number(document.getElementById("pDescuento")?.value || 0));
+  const descuento_importe = pedidoActual.reduce((a,l)=>a+Number(l.descuento_importe||0),0);
+  const bruto = pedidoActual.reduce((a,l)=>a+(Number(l.cantidad||0)*Number(l.precio||0)),0);
+  const descuento_porcentaje = bruto ? (descuento_importe / bruto * 100) : 0;
   const ajuste_porcentaje = Math.max(0, Number(document.getElementById("pAjuste")?.value || 0));
-  const descuento_importe = subtotal * descuento_porcentaje / 100;
-  const descuento_diferida = subtotal ? (subtotal_diferida * descuento_importe / subtotal) : 0;
-  const base_comision = Math.max(0, subtotal - descuento_importe);
-  const base_comision_diferida = Math.max(0, subtotal_diferida - descuento_diferida);
+  const base_comision = subtotal;
+  const base_comision_diferida = subtotal_diferida;
   const ajuste_importe = base_comision * ajuste_porcentaje / 100;
   const total = base_comision + ajuste_importe;
   return {subtotal, subtotal_diferida, descuento_porcentaje, descuento_importe, base_comision, base_comision_diferida, ajuste_porcentaje, ajuste_importe, total};
@@ -1299,6 +1326,8 @@ function renderPedidoActual(){
     <td>${l.nombre}<div class="small">${l.codigo_barras||''}</div></td>
     <td><input type="number" min="1" value="${l.cantidad}" onchange="updateQty(${i},this.value)"></td>
     <td><input type="number" min="0" step="0.01" value="${Number(l.precio||0)}" onchange="updatePrecio(${i},this.value)" onfocus="this.select()"></td>
+    <td><input type="number" min="0" step="0.01" value="${lineDiscount(l)}" onchange="updateDescuentoLinea(${i},this.value)" onfocus="this.select()"></td>
+    <td>${money(linePrecioFinal(l))}</td>
     <td>${money(l.subtotal)}</td>
     <td>${l.comision_diferida ? '<span class="badge green">SI</span>' : '<span class="badge">NO</span>'}</td>
     <td><button class="btn danger" onclick="removeLine(${i})">X</button></td>
@@ -1311,7 +1340,6 @@ function renderPedidoActual(){
   const pctDif = porcentajeComisionDiferidaSeleccionado();
   const importeDif = referido ? (t.base_comision_diferida * pctDif / 100) : 0;
   set("pedidoSubtotal", money(t.subtotal));
-  set("pedidoDescuentoImporte", "-" + money(t.descuento_importe));
   set("pedidoBaseComision", money(t.base_comision));
   set("pedidoComisionPreview", money(importeComision) + (pctComision ? " (" + pctComision + "%)" : ""));
   set("pedidoBaseDiferida", money(t.base_comision_diferida));
@@ -1474,6 +1502,8 @@ async function guardarPedido(){
       codigo_barras: l.codigo_barras || '',
       cantidad: l.cantidad,
       precio_unitario: l.precio,
+      descuento_porcentaje: lineDiscount(l),
+      precio_final: linePrecioFinal(l),
       subtotal: l.subtotal,
       comision_diferida: !!l.comision_diferida
     }));
@@ -1485,7 +1515,7 @@ async function guardarPedido(){
     if(resDetalle.error){
       // Compatibilidad: si Supabase todavía no tiene la columna comision_diferida
       // en detalle_pedidos, guarda el pedido igual sin romper.
-      const detallesBasicos = detalles.map(({comision_diferida, ...rest}) => rest);
+      const detallesBasicos = detalles.map(({comision_diferida, descuento_porcentaje, precio_final, ...rest}) => rest);
       resDetalle = await sb
         .from("detalle_pedidos")
         .insert(detallesBasicos);
@@ -1656,7 +1686,6 @@ function documentoRemito(p, lineas){
   const c = clienteDePedido(p);
   const total = Number(p?.total || 0);
   const subtotal = subtotalPedido(p);
-  const descuento = Number(p?.descuento_importe||0);
   const ajuste = Number(p?.ajuste_importe||0);
   const rows = (lineas||[]).map(l=>`
     <tr>
@@ -1664,6 +1693,8 @@ function documentoRemito(p, lineas){
       <td>${escapeHtml(l.producto || l.nombre || "")}</td>
       <td class="num">${escapeHtml(l.cantidad||"")}</td>
       <td class="num">${money(l.precio_unitario || l.precio || 0)}</td>
+      <td class="num">${Number(l.descuento_porcentaje || l.descuento || 0) ? (Number(l.descuento_porcentaje || l.descuento || 0).toFixed(2).replace(".00","") + "%") : "-"}</td>
+      <td class="num">${money(l.precio_final || (Number(l.precio_unitario || l.precio || 0) * (1 - Number(l.descuento_porcentaje || l.descuento || 0)/100)))}</td>
       <td class="num">${money(l.subtotal||0)}</td>
     </tr>`).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>Remito ${escapeHtml(p?.id||"")}</title>${estilosDocumento()}</head><body>
@@ -1700,12 +1731,10 @@ function documentoRemito(p, lineas){
         </div>
       </div>
       <table>
-        <thead><tr><th style="width:90px">SKU</th><th>Nombre</th><th style="width:90px">Cantidad</th><th style="width:120px">Precio unitario</th><th style="width:120px">Subtotal</th></tr></thead>
+        <thead><tr><th style="width:70px">SKU</th><th>Nombre</th><th style="width:70px">Cant.</th><th style="width:95px">P. Lista</th><th style="width:70px">Desc.</th><th style="width:95px">P. Final</th><th style="width:105px">Subtotal</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <table class="totales">
-        <tr><td>Subtotal productos</td><td class="num">${money(subtotal)}</td></tr>
-        ${descuento ? `<tr><td>Descuento</td><td class="num">-${money(descuento)}</td></tr>` : ""}
         ${ajuste ? `<tr><td>Ajuste</td><td class="num">${money(ajuste)}</td></tr>` : ""}
         <tr class="total-final"><td>TOTAL</td><td class="num">${money(total)}</td></tr>
       </table>
@@ -1973,10 +2002,17 @@ async function editarPedido(id){
     nombre: l.producto || l.nombre || "",
     cantidad: Number(l.cantidad||0),
     precio: Number(l.precio_unitario || l.precio || 0),
+    descuento_porcentaje: Number(l.descuento_porcentaje || l.descuento || 0),
+    precio_final: Number(l.precio_final || 0),
     subtotal: Number(l.subtotal||0),
     codigo_barras: l.codigo_barras || "",
     comision_diferida: !!(l.comision_diferida || productos.find(p=>p.sku===(l.sku||""))?.comision_diferida)
-  }));
+  })).map(l=>{
+    if(!l.descuento_porcentaje && l.precio && l.cantidad && l.subtotal && Math.abs(l.subtotal - (l.precio*l.cantidad)) > 0.01){
+      l.descuento_porcentaje = Math.max(0, 100 - ((l.subtotal / (l.precio*l.cantidad)) * 100));
+    }
+    return recalcularLinea(l);
+  });
 
   // Navegar primero (renderAll reconstruye el DOM)
   const navBtn = Array.from(document.querySelectorAll(".nav button")).find(b=>b.textContent.includes("Cargar pedido"));
