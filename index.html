@@ -3651,47 +3651,45 @@ function documentoRemitoGenerico(p, lineas, completo=true){
   const c = clienteDePedido(p);
   const lineasSeguras = Array.isArray(lineas) ? lineas : [];
 
-  // IMPORTANTE:
-  // Para el remito tomamos como "precio lista" la suma de los productos,
-  // porque a veces el pedido guarda el total ya descontado pero no guarda descuento_importe/descuento_porcentaje.
-  const subtotalLista = lineasSeguras.reduce((acc,l)=>{
-    const cantidad = Number(l.cantidad||0);
-    const precioLista = Number(l.precio_unitario || l.precio || (cantidad ? Number(l.subtotal||0) / cantidad : 0));
-    return acc + (precioLista * cantidad);
-  },0) || subtotalPedido(p);
-
-  const ajuste = Number(p?.ajuste_importe||0);
-  const total = Number(p?.total || 0);
-
-  // Detecta descuento aunque no venga guardado explícitamente en Supabase.
-  const descuentoGuardado = Number(p?.descuento_importe||0);
-  const descuentoPorcentajeGuardado = Number(p?.descuento_porcentaje||0);
-  const descuentoInferido = Math.max(0, subtotalLista + ajuste - total);
-  const descuento = descuentoGuardado || (descuentoPorcentajeGuardado ? subtotalLista * descuentoPorcentajeGuardado / 100 : 0) || descuentoInferido;
-  const descuentoPorcentaje = descuentoPorcentajeGuardado || (subtotalLista ? (descuento * 100 / subtotalLista) : 0);
-  const tieneDescuento = descuento > 0.5 || descuentoPorcentaje > 0.01;
-
-  const factorDescuento = tieneDescuento ? Math.max(0, 1 - descuentoPorcentaje / 100) : 1;
-  const totalFinal = total || Math.max(0, subtotalLista - descuento + ajuste);
-  const descTexto = descuentoPorcentaje.toFixed(2).replace('.00','').replace('.', ',') + '%';
-
-  const rows = lineasSeguras.map(l=>{
+  // Remito corregido:
+  // - El descuento se muestra SOLO por producto.
+  // - El subtotal de cada renglón se calcula con el precio final ya descontado.
+  // - Abajo NO se muestra descuento global para evitar confusión.
+  const lineasCalculadas = lineasSeguras.map(l=>{
     const cantidad = Number(l.cantidad||0);
     const precioLista = Number(l.precio_unitario || l.precio || (cantidad ? Number(l.subtotal||0) / cantidad : 0));
     const subtotalListaLinea = precioLista * cantidad;
-    const precioFinal = precioLista * factorDescuento;
-    const subtotalFinalLinea = subtotalListaLinea * factorDescuento;
+
+    let descuentoLinea = Number(l.descuento_porcentaje ?? l.descuento ?? 0) || 0;
+    if(!descuentoLinea && subtotalListaLinea && Number(l.subtotal||0) && Math.abs(Number(l.subtotal||0) - subtotalListaLinea) > 0.01){
+      descuentoLinea = Math.max(0, 100 - ((Number(l.subtotal||0) / subtotalListaLinea) * 100));
+    }
+
+    const precioFinal = Number(l.precio_final || (precioLista * Math.max(0, 1 - descuentoLinea / 100)));
+    const subtotalFinalLinea = Number(l.subtotal || (precioFinal * cantidad));
+
+    return { l, cantidad, precioLista, descuentoLinea, precioFinal, subtotalFinalLinea };
+  });
+
+  const subtotalFinal = lineasCalculadas.reduce((acc,x)=>acc + Number(x.subtotalFinalLinea||0),0) || subtotalPedido(p);
+  const ajuste = Number(p?.ajuste_importe||0);
+  const totalFinal = Math.max(0, subtotalFinal + ajuste);
+  const tieneDescuento = lineasCalculadas.some(x=>Number(x.descuentoLinea||0) > 0.01);
+
+  const rows = lineasCalculadas.map(x=>{
+    const l = x.l;
+    const descTextoLinea = x.descuentoLinea ? (Number(x.descuentoLinea).toFixed(2).replace('.00','').replace('.', ',') + '%') : '-';
 
     if(tieneDescuento){
       return `
         <tr>
           <td>${escapeHtml(l.sku||'')}</td>
           <td>${escapeHtml(l.producto || l.nombre || '')}</td>
-          <td class="num">${escapeHtml(l.cantidad||'')}</td>
-          <td class="num">${money(precioLista)}</td>
-          <td class="num">${descTexto}</td>
-          <td class="num">${money(precioFinal)}</td>
-          <td class="num">${money(subtotalFinalLinea)}</td>
+          <td class="num">${escapeHtml(x.cantidad||'')}</td>
+          <td class="num">${money(x.precioLista)}</td>
+          <td class="num">${descTextoLinea}</td>
+          <td class="num">${money(x.precioFinal)}</td>
+          <td class="num">${money(x.subtotalFinalLinea)}</td>
         </tr>`;
     }
 
@@ -3699,9 +3697,9 @@ function documentoRemitoGenerico(p, lineas, completo=true){
       <tr>
         <td>${escapeHtml(l.sku||'')}</td>
         <td>${escapeHtml(l.producto || l.nombre || '')}</td>
-        <td class="num">${escapeHtml(l.cantidad||'')}</td>
-        <td class="num">${money(precioLista)}</td>
-        <td class="num">${money(subtotalListaLinea)}</td>
+        <td class="num">${escapeHtml(x.cantidad||'')}</td>
+        <td class="num">${money(x.precioLista)}</td>
+        <td class="num">${money(x.subtotalFinalLinea)}</td>
       </tr>`;
   }).join('');
 
@@ -3741,8 +3739,7 @@ function documentoRemitoGenerico(p, lineas, completo=true){
       </table>
 
       <table class="totales">
-        <tr><td>${tieneDescuento ? 'Subtotal lista' : 'Subtotal'}</td><td class="num">${money(subtotalLista)}</td></tr>
-        ${tieneDescuento ? `<tr><td>Descuento ${descTexto}</td><td class="num">-${money(descuento)}</td></tr>` : ''}
+        <tr><td>Subtotal</td><td class="num">${money(subtotalFinal)}</td></tr>
         ${ajuste ? `<tr><td>Ajuste</td><td class="num">${money(ajuste)}</td></tr>` : ''}
         <tr class="total-final"><td>Total</td><td class="num">${money(totalFinal)}</td></tr>
       </table>
