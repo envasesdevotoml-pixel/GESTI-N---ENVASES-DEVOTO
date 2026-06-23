@@ -358,6 +358,72 @@
     @media(max-width:1100px){.corte-form{grid-template-columns:1fr 1fr}}
     @media(max-width:700px){.corte-form{grid-template-columns:1fr}.corte-qty{grid-template-columns:58px 1fr 58px}.corte-qty button{font-size:24px;padding:14px 0}}
 
+    /* ===== Dashboard ordenado / visualizaciones ===== */
+    .dashboard-shell{display:grid;gap:16px}
+    .dash-toolbar-card{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+    .dash-toolbar-card h2{margin:0 0 5px}
+    .dash-kpi-grid{display:grid;grid-template-columns:repeat(5,minmax(160px,1fr));gap:16px;margin-bottom:16px}
+    .dash-kpi{min-height:122px;position:relative;overflow:hidden}
+    .dash-kpi:after{content:"";position:absolute;left:18px;right:18px;bottom:12px;height:4px;border-radius:999px;background:currentColor;opacity:.55}
+    .dash-kpi.blue{color:var(--blue)}
+    .dash-kpi.orange{color:var(--orange)}
+    .dash-kpi.green{color:var(--green)}
+    .dash-kpi.purple{color:var(--purple)}
+    .dash-kpi.red{color:var(--red)}
+    .dash-kpi .metric-value{font-size:27px;margin-top:6px}
+    .dash-note{margin-top:8px;font-size:12px;color:var(--muted);font-weight:700}
+    .dash-chart-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
+    .dash-three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+    .dash-card-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+    .dash-card-title h2{margin:0}
+    .dash-pill{display:inline-flex;align-items:center;border:1px solid var(--line);background:#f8fafc;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900;color:#334155}
+    .dash-bars{display:grid;gap:10px}
+    .dash-bar-row{display:grid;gap:5px}
+    .dash-bar-meta{display:flex;justify-content:space-between;gap:10px;font-size:13px;font-weight:800;color:#334155}
+    .dash-bar-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .dash-bar-value{white-space:nowrap;color:#0f172a}
+    .dash-bar-track{height:10px;border-radius:999px;background:#eef2f7;overflow:hidden}
+    .dash-bar-fill{height:100%;border-radius:999px;background:currentColor;min-width:2px}
+
+    .dash-bar-row.blue,.dash-status-row.blue{color:var(--blue)}
+    .dash-bar-row.orange,.dash-status-row.orange{color:var(--orange)}
+    .dash-bar-row.green,.dash-status-row.green{color:var(--green)}
+    .dash-bar-row.purple,.dash-status-row.purple{color:var(--purple)}
+    .dash-bar-row.red,.dash-status-row.red{color:var(--red)}
+    .dash-empty{padding:22px;text-align:center;color:var(--muted);font-weight:800;border:1px dashed var(--line);border-radius:14px;background:#fbfdff}
+    .dash-trend{height:210px;display:flex;align-items:flex-end;gap:7px;padding:12px 4px 0;border-bottom:1px solid var(--line)}
+    .dash-trend-item{flex:1;min-width:14px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px}
+    .dash-trend-bar{width:100%;max-width:34px;border-radius:9px 9px 0 0;background:linear-gradient(180deg,#2094e6,#1275bd);min-height:3px}
+    .dash-trend-label{font-size:11px;color:var(--muted);font-weight:800;white-space:nowrap}
+    .dash-trend-caption{margin-top:10px;color:var(--muted);font-size:12px;font-weight:700}
+    .dash-status-grid{display:grid;gap:10px}
+    .dash-status-row{display:grid;grid-template-columns:150px 1fr 46px;align-items:center;gap:10px}
+    .dash-status-name{font-size:13px;font-weight:900;color:#334155}
+    .dash-status-count{text-align:right;font-size:18px;font-weight:900;color:#0f172a}
+    .dash-commission-box{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .dash-commission-mini{border:1px solid var(--line);border-radius:14px;padding:14px;background:#fbfdff}
+    .dash-commission-mini b{display:block;font-size:20px;margin-top:6px}
+    .dash-timeline{display:grid;gap:10px}
+    .dash-activity-item{display:grid;grid-template-columns:42px 1fr;gap:10px;align-items:start;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}
+    .dash-activity-icon{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#eef4ff;color:var(--blue);font-weight:900}
+    .dash-activity-title{font-weight:900;color:#0f172a}
+    .dash-activity-detail{font-size:12px;color:var(--muted);font-weight:700;margin-top:3px}
+    .dash-table-compact table{box-shadow:none}
+    .dash-table-compact th,.dash-table-compact td{padding:9px 10px;font-size:13px}
+    .dash-last-orders table{box-shadow:none}
+    .dash-legacy-metrics{display:none}
+    @media(max-width:1200px){
+      .dash-kpi-grid{grid-template-columns:repeat(2,minmax(180px,1fr))}
+      .dash-chart-grid,.dash-three{grid-template-columns:1fr}
+    }
+    @media(max-width:700px){
+      .dash-toolbar-card{align-items:flex-start}
+      .dash-kpi-grid{grid-template-columns:1fr}
+      .dash-trend{gap:4px;height:170px}
+      .dash-status-row{grid-template-columns:118px 1fr 34px}
+      .dash-commission-box{grid-template-columns:1fr}
+    }
+
 </style>
 </head>
 <body>
@@ -404,54 +470,118 @@ function toast(msg, tipo='', duracion=3500){
   <main>
     <section id="dashboard" class="section active">
       <h1>Panel principal</h1>
-      <div class="dashboard-grid">
-        <div class="card metric-card blue"><div class="metric-title">Pendientes</div><div class="metric-value" id="mPendientes">0</div></div>
-        <div class="card metric-card orange"><div class="metric-title">En preparación</div><div class="metric-value" id="mEnPreparacion">0</div></div>
-        <div class="card metric-card green"><div class="metric-title">Preparados</div><div class="metric-value" id="mPreparados">0</div></div>
-        <div class="card metric-card purple"><div class="metric-title">Entregados</div><div class="metric-value" id="mEntregados">0</div></div>
-        <div class="card metric-card red"><div class="metric-title">Cancelados</div><div class="metric-value" id="mCancelados">0</div></div>
-      </div>
-      <div class="grid">
-        <div class="card"><div class="metric-title">Pedidos totales</div><div class="metric-value" id="mPedidos">0</div></div>
-        <div class="card"><div class="metric-title">Ventas cargadas</div><div class="metric-value" id="mVentas">$0</div></div>
-        <div class="card"><div class="metric-title">Productos</div><div class="metric-value" id="mProductos">0</div></div>
-        <div class="card"><div class="metric-title">Comisiones pendientes</div><div class="metric-value" id="mComisiones">$0</div></div>
+
+      <div class="card dash-toolbar-card">
+        <div>
+          <h2 id="dashAnalisisTitulo">Análisis mensual</h2>
+          <div class="small" id="dashAnalisisSubtitulo">Resumen claro de ventas, pedidos, preparación, productos y comisiones.</div>
+        </div>
+        <div class="toolbar" style="margin-bottom:0">
+          <select id="dashPeriodo" onchange="actualizarControlesDashboard(); renderDashboard()">
+            <option value="mensual">Mensual</option>
+            <option value="general">General</option>
+            <option value="anual">Anual</option>
+            <option value="dia">Día</option>
+          </select>
+          <input id="dashMes" type="month" onchange="renderDashboard()">
+          <input id="dashAnio" type="number" min="2020" max="2100" step="1" style="display:none;width:120px" onchange="renderDashboard()" placeholder="Año">
+          <input id="dashDia" type="date" style="display:none" onchange="renderDashboard()">
+          <button class="btn secondary" onclick="setDashPeriodoActual()">Período actual</button>
+          <button class="btn success" onclick="exportarPedidosExcel()">Exportar pedidos a Excel</button>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="toolbar" style="justify-content:space-between">
-          <div>
-            <h2 id="dashAnalisisTitulo" style="margin-bottom:6px">Análisis mensual</h2>
-            <div class="small" id="dashAnalisisSubtitulo">Para ver rápido ventas, vendedores, productos y comisiones por período.</div>
-          </div>
-          <div class="toolbar">
-            <select id="dashPeriodo" onchange="actualizarControlesDashboard(); renderDashboard()">
-              <option value="mensual">Mensual</option>
-              <option value="general">General</option>
-              <option value="anual">Anual</option>
-              <option value="dia">Día</option>
-            </select>
-            <input id="dashMes" type="month" onchange="renderDashboard()">
-            <input id="dashAnio" type="number" min="2020" max="2100" step="1" style="display:none;width:120px" onchange="renderDashboard()" placeholder="Año">
-            <input id="dashDia" type="date" style="display:none" onchange="renderDashboard()">
-            <button class="btn secondary" onclick="setDashPeriodoActual()">Período actual</button>
-            <button class="btn success" onclick="exportarPedidosExcel()">Exportar pedidos a Excel</button>
-          </div>
-        </div>
-        <div class="grid">
-          <div class="card"><div class="metric-title" id="lblVentasPeriodo">Ventas del período</div><div class="metric-value" id="mVentasMes">$0</div></div>
-          <div class="card"><div class="metric-title" id="lblPedidosPeriodo">Pedidos del período</div><div class="metric-value" id="mPedidosMes">0</div></div>
-          <div class="card"><div class="metric-title">Ticket promedio</div><div class="metric-value" id="mTicketMes">$0</div></div>
-          <div class="card"><div class="metric-title" id="lblComisionesPeriodo">Comisiones pendientes del período</div><div class="metric-value" id="mComisionesMes">$0</div></div>
-        </div>
-        <div class="two">
-          <div class="card"><h2>Top vendedores</h2><div id="dashTopVendedores"></div></div>
-          <div class="card"><h2>Top clientes</h2><div id="dashTopClientes"></div></div>
-        </div>
-        <div class="card"><h2>Top productos</h2><div id="dashTopProductos"></div></div>
+      <div class="dash-legacy-metrics">
+        <span id="mPendientes">0</span>
+        <span id="mEnPreparacion">0</span>
+        <span id="mPreparados">0</span>
+        <span id="mEntregados">0</span>
+        <span id="mCancelados">0</span>
+        <span id="mPedidos">0</span>
+        <span id="mVentas">$0</span>
+        <span id="mProductos">0</span>
+        <span id="mComisiones">$0</span>
       </div>
 
-      <div class="card">
+      <div class="dash-kpi-grid">
+        <div class="card dash-kpi blue">
+          <div class="metric-title" id="lblVentasPeriodo">Ventas del período</div>
+          <div class="metric-value" id="mVentasMes">$0</div>
+          <div class="dash-note" id="mVentasSub">Total facturado según pedidos cargados.</div>
+        </div>
+        <div class="card dash-kpi orange">
+          <div class="metric-title" id="lblPedidosPeriodo">Pedidos del período</div>
+          <div class="metric-value" id="mPedidosMes">0</div>
+          <div class="dash-note" id="mPedidosSub">Pedidos registrados en el período.</div>
+        </div>
+        <div class="card dash-kpi green">
+          <div class="metric-title">Ticket promedio</div>
+          <div class="metric-value" id="mTicketMes">$0</div>
+          <div class="dash-note">Promedio por pedido cargado.</div>
+        </div>
+        <div class="card dash-kpi purple">
+          <div class="metric-title" id="lblComisionesPeriodo">Comisiones pendientes</div>
+          <div class="metric-value" id="mComisionesMes">$0</div>
+          <div class="dash-note" id="mComisionesSub">Saldo pendiente del período.</div>
+        </div>
+        <div class="card dash-kpi red">
+          <div class="metric-title">Productos vendidos</div>
+          <div class="metric-value" id="mProductosVendidosPeriodo">0</div>
+          <div class="dash-note" id="mProductosVendidosSub">Unidades cargadas en pedidos.</div>
+        </div>
+      </div>
+
+      <div class="dash-chart-grid">
+        <div class="card">
+          <div class="dash-card-title">
+            <h2>Ventas por período</h2>
+            <span class="dash-pill" id="dashVentasPorDiaDetalle">Sin datos</span>
+          </div>
+          <div id="dashVentasPorDia"></div>
+        </div>
+        <div class="card">
+          <div class="dash-card-title">
+            <h2>Estado de pedidos</h2>
+            <span class="dash-pill">Operativo</span>
+          </div>
+          <div id="dashEstadosResumen"></div>
+        </div>
+      </div>
+
+      <div class="dash-three">
+        <div class="card">
+          <div class="dash-card-title"><h2>Ventas por vendedor</h2><span class="dash-pill">Top 5</span></div>
+          <div id="dashVendedoresChart"></div>
+        </div>
+        <div class="card">
+          <div class="dash-card-title"><h2>Top productos</h2><span class="dash-pill">Cantidad</span></div>
+          <div id="dashProductosChart"></div>
+        </div>
+        <div class="card">
+          <div class="dash-card-title"><h2>Comisiones</h2><span class="dash-pill">Pagadas vs pendientes</span></div>
+          <div id="dashComisionesChart"></div>
+        </div>
+      </div>
+
+      <div class="two">
+        <div class="card">
+          <div class="dash-card-title"><h2>Última actividad</h2><span class="dash-pill">Reciente</span></div>
+          <div id="dashActividad"></div>
+        </div>
+        <div class="card">
+          <div class="dash-card-title"><h2>Pedidos por estado</h2><span class="dash-pill">Barras</span></div>
+          <div id="dashEstadosChart"></div>
+        </div>
+      </div>
+
+      <div class="two">
+        <div class="card dash-table-compact"><h2>Top vendedores</h2><div id="dashTopVendedores"></div></div>
+        <div class="card dash-table-compact"><h2>Top clientes</h2><div id="dashTopClientes"></div></div>
+      </div>
+
+      <div class="card dash-table-compact"><h2>Top productos vendidos</h2><div id="dashTopProductos"></div></div>
+
+      <div class="card dash-table-compact dash-last-orders">
         <h2>Últimos pedidos</h2>
         <div id="dashPedidos"></div>
       </div>
@@ -1880,13 +2010,170 @@ function textoPeriodoDashboard(){
   return {titulo:"Análisis mensual", ventas:"Ventas del mes", pedidos:"Pedidos del mes", comisiones:"Comisiones pendientes del mes"};
 }
 function pedidosDelMesSeleccionado(){ return pedidosPeriodoDashboard(); }
+function edDashEscape(v){
+  return String(v ?? "")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#39;");
+}
+function edDashEmpty(msg){
+  return `<div class="dash-empty">${edDashEscape(msg || "Sin datos para mostrar.")}</div>`;
+}
+function edDashPct(valor, max){
+  if(!max || max <= 0) return 0;
+  return Math.max(0, Math.min(100, (Number(valor||0) / Number(max||0)) * 100));
+}
+function edDashBars(items, tipo){
+  if(!items || !items.length) return edDashEmpty("Sin datos para este período.");
+  const max = Math.max(...items.map(x=>Number(x.value||0)), 0);
+  return `<div class="dash-bars ${tipo||''}">` + items.map(x=>{
+    const pct = edDashPct(x.value, max);
+    const color = x.colorClass ? ` ${x.colorClass}` : "";
+    const sub = x.sub ? `<div class="dash-activity-detail">${edDashEscape(x.sub)}</div>` : "";
+    return `<div class="dash-bar-row${color}" title="${edDashEscape(x.title || x.label)}">
+      <div class="dash-bar-meta">
+        <span class="dash-bar-label">${edDashEscape(x.label)}</span>
+        <span class="dash-bar-value">${edDashEscape(x.valueLabel ?? x.value)}</span>
+      </div>
+      <div class="dash-bar-track"><div class="dash-bar-fill" style="width:${pct || (Number(x.value||0)>0 ? 3 : 0)}%"></div></div>
+      ${sub}
+    </div>`;
+  }).join("") + `</div>`;
+}
+function edDashTrend(items){
+  if(!items || !items.length || !items.some(x=>Number(x.value||0)>0)) return edDashEmpty("Todavía no hay ventas cargadas para graficar.");
+  const max = Math.max(...items.map(x=>Number(x.value||0)), 0);
+  return `<div class="dash-trend">` + items.map(x=>{
+    const h = edDashPct(x.value, max);
+    const label = edDashEscape(x.label);
+    const valueLabel = edDashEscape(x.valueLabel || money(x.value));
+    return `<div class="dash-trend-item" title="${label}: ${valueLabel}">
+      <div class="dash-trend-bar" style="height:${Math.max(3,h)}%"></div>
+      <div class="dash-trend-label">${label}</div>
+    </div>`;
+  }).join("") + `</div>`;
+}
+function edDashVentasSerie(pedidosPeriodo){
+  const modo = modoDashboard();
+  const serie = [];
+  if(modo === "mensual"){
+    const mes = document.getElementById("dashMes")?.value || periodoMesActual();
+    const [anio, mesN] = mes.split("-").map(Number);
+    const dias = new Date(anio, mesN, 0).getDate();
+    for(let d=1; d<=dias; d++){
+      const ymd = `${anio}-${String(mesN).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const total = pedidosPeriodo.filter(p=>fechaYMD(p.fecha)===ymd).reduce((a,p)=>a+Number(p.total||0),0);
+      serie.push({label:String(d), value:total, valueLabel:money(total)});
+    }
+    return serie;
+  }
+  if(modo === "anual"){
+    const anio = document.getElementById("dashAnio")?.value || periodoAnioActual();
+    for(let m=1; m<=12; m++){
+      const key = `${anio}-${String(m).padStart(2,"0")}`;
+      const total = pedidosPeriodo.filter(p=>mesDeFecha(p.fecha)===key).reduce((a,p)=>a+Number(p.total||0),0);
+      serie.push({label:String(m).padStart(2,"0"), value:total, valueLabel:money(total)});
+    }
+    return serie;
+  }
+  if(modo === "dia"){
+    const horas = {};
+    pedidosPeriodo.forEach(p=>{
+      const d = new Date(p.fecha);
+      const h = isNaN(d) ? "00" : String(d.getHours()).padStart(2,"0");
+      horas[h] = (horas[h] || 0) + Number(p.total||0);
+    });
+    Object.keys(horas).sort().forEach(h=>serie.push({label:h+"h", value:horas[h], valueLabel:money(horas[h])}));
+    return serie.length ? serie : [{label:"Día", value:0, valueLabel:money(0)}];
+  }
+  const porMes = {};
+  pedidosPeriodo.forEach(p=>{
+    const key = mesDeFecha(p.fecha) || "Sin fecha";
+    porMes[key] = (porMes[key] || 0) + Number(p.total||0);
+  });
+  return Object.keys(porMes).sort().slice(-12).map(k=>({label:k.replace(/^(\d{4})-/,"$1/"), value:porMes[k], valueLabel:money(porMes[k])}));
+}
+function edDashEstadoItems(){
+  const estados = [
+    {estado:"Pendiente", label:"Pendientes", colorClass:"blue"},
+    {estado:"En preparación", label:"En preparación", colorClass:"orange"},
+    {estado:"Preparado", label:"Preparados", colorClass:"green"},
+    {estado:"Entregado", label:"Entregados", colorClass:"purple"},
+    {estado:"Cancelado", label:"Cancelados", colorClass:"red"}
+  ];
+  return estados.map(x=>{
+    const count = pedidos.filter(p=>p.estado===x.estado).length;
+    return {...x, value:count, valueLabel:String(count), sub:count===1 ? "1 pedido" : `${count} pedidos`};
+  });
+}
+function edDashEstadoResumen(){
+  const items = edDashEstadoItems();
+  const total = pedidos.length || 1;
+  return `<div class="dash-status-grid">` + items.map(x=>{
+    const pct = edDashPct(x.value, total);
+    return `<div class="dash-status-row ${x.colorClass}">
+      <div class="dash-status-name">${edDashEscape(x.label)}</div>
+      <div class="dash-bar-track"><div class="dash-bar-fill" style="width:${pct || (x.value>0 ? 3 : 0)}%"></div></div>
+      <div class="dash-status-count">${x.value}</div>
+    </div>`;
+  }).join("") + `</div>`;
+}
+function edDashActividades(comisionesDetalle){
+  const actividades = [];
+  pedidos.forEach(p=>{
+    actividades.push({
+      fecha:p.fecha,
+      icon:"🛒",
+      titulo:`Pedido #${p.id} · ${clienteNombrePedido(p)}`,
+      detalle:`${p.estado || "Sin estado"} · ${money(p.total || 0)}`
+    });
+    const pagos = Array.isArray(p.comision_pagos) ? p.comision_pagos : [];
+    pagos.forEach(pg=>{
+      const com = comisionesDetalle.find(c=>String(c.comision_key||c.pedido_id)===String(pg.comision_key||""));
+      actividades.push({
+        fecha:pg.fecha || p.comision_pagada_fecha || p.fecha,
+        icon:"💰",
+        titulo:`Comisión pagada${com?.vendedor ? " · " + com.vendedor : ""}`,
+        detalle:`Pedido #${p.id} · ${money(pg.importe || 0)}${pg.usuario ? " · " + pg.usuario : ""}`
+      });
+    });
+  });
+  Object.entries(historialPedidos || {}).forEach(([pid,items])=>{
+    (items||[]).slice(0,2).forEach(h=>{
+      actividades.push({
+        fecha:h.fecha,
+        icon:"📝",
+        titulo:`${h.accion || "Movimiento"} · Pedido #${pid}`,
+        detalle:`${h.usuario || ""}${h.detalle ? " · " + h.detalle : ""}`.slice(0,150)
+      });
+    });
+  });
+  actividades.sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+  if(!actividades.length) return edDashEmpty("Todavía no hay actividad registrada.");
+  return `<div class="dash-timeline">` + actividades.slice(0,8).map(a=>{
+    const fecha = a.fecha ? new Date(a.fecha).toLocaleString("es-AR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+    return `<div class="dash-activity-item">
+      <div class="dash-activity-icon">${edDashEscape(a.icon)}</div>
+      <div>
+        <div class="dash-activity-title">${edDashEscape(a.titulo)}</div>
+        <div class="dash-activity-detail">${edDashEscape(fecha)} · ${edDashEscape(a.detalle)}</div>
+      </div>
+    </div>`;
+  }).join("") + `</div>`;
+}
 function renderDashboard(){
   actualizarControlesDashboard();
+
   const total=pedidos.reduce((a,p)=>a+Number(p.total||0),0);
   const comisionesDetalle = calcComisionesDetalle();
   const comPendiente=comisionesDetalle.filter(c=>Number(c.saldo||0)>0).reduce((a,c)=>a+Number(c.saldo||0),0);
   const countEstado = e => pedidos.filter(p=>p.estado===e).length;
   const setMetric=(id,val)=>{const el=document.getElementById(id); if(el) el.innerText=val};
+  const setHTML=(id,val)=>{const el=document.getElementById(id); if(el) el.innerHTML=val};
+  const setText=(id,val)=>{const el=document.getElementById(id); if(el) el.innerText=val};
+
   setMetric("mPendientes", countEstado("Pendiente"));
   setMetric("mEnPreparacion", countEstado("En preparación"));
   setMetric("mPreparados", countEstado("Preparado"));
@@ -1898,7 +2185,6 @@ function renderDashboard(){
   setMetric("mComisiones", money(comPendiente));
 
   const textos = textoPeriodoDashboard();
-  const setText=(id,val)=>{const el=document.getElementById(id); if(el) el.innerText=val};
   setText("dashAnalisisTitulo", textos.titulo);
   setText("lblVentasPeriodo", textos.ventas);
   setText("lblPedidosPeriodo", textos.pedidos);
@@ -1907,13 +2193,30 @@ function renderDashboard(){
   const pedidosPeriodo = pedidosPeriodoDashboard();
   const ventasPeriodo = pedidosPeriodo.reduce((a,p)=>a+Number(p.total||0),0);
   const ticket = pedidosPeriodo.length ? ventasPeriodo / pedidosPeriodo.length : 0;
-  const comPendPeriodo = comisionesDetalle
-    .filter(c=>Number(c.saldo||0)>0 && comisionPertenecePeriodoDashboard(c))
+  const productosVendidos = pedidosPeriodo.reduce((a,p)=>a+(p.lineas||[]).reduce((s,l)=>s+Number(l.cantidad||0),0),0);
+  const comisionesPeriodo = comisionesDetalle.filter(c=>comisionPertenecePeriodoDashboard(c));
+  const comPendPeriodo = comisionesPeriodo
+    .filter(c=>Number(c.saldo||0)>0)
     .reduce((a,c)=>a+Number(c.saldo||0),0);
+  const comPagadaPeriodo = comisionesPeriodo.reduce((a,c)=>a+Number(c.pagado||0),0);
+  const comGeneradaPeriodo = comisionesPeriodo.reduce((a,c)=>a+Number(c.importe||0),0);
+
   setMetric("mVentasMes", money(ventasPeriodo));
   setMetric("mPedidosMes", pedidosPeriodo.length);
   setMetric("mTicketMes", money(ticket));
   setMetric("mComisionesMes", money(comPendPeriodo));
+  setMetric("mProductosVendidosPeriodo", productosVendidos);
+  setText("mVentasSub", pedidosPeriodo.length ? `${pedidosPeriodo.length} pedidos cargados.` : "Sin pedidos en este período.");
+  setText("mPedidosSub", pedidosPeriodo.length === 1 ? "1 pedido registrado." : `${pedidosPeriodo.length} pedidos registrados.`);
+  setText("mComisionesSub", `${money(comPagadaPeriodo)} pagadas · ${money(comPendiente)} pendientes totales.`);
+  setText("mProductosVendidosSub", `${productos.length} referencias en catálogo.`);
+
+  const ventasSerie = edDashVentasSerie(pedidosPeriodo);
+  setHTML("dashVentasPorDia", edDashTrend(ventasSerie) + `<div class="dash-trend-caption">Total del período: <b>${money(ventasPeriodo)}</b></div>`);
+  setText("dashVentasPorDiaDetalle", pedidosPeriodo.length ? `${pedidosPeriodo.length} pedidos` : "Sin pedidos");
+
+  setHTML("dashEstadosResumen", edDashEstadoResumen());
+  setHTML("dashEstadosChart", edDashBars(edDashEstadoItems(), "dash-estados"));
 
   const porVendedor = {};
   pedidosPeriodo.forEach(p=>{
@@ -1926,8 +2229,14 @@ function renderDashboard(){
     .map(([nombre,x])=>({nombre,...x}))
     .sort((a,b)=>b.total-a.total)
     .slice(0,8);
+  setHTML("dashVendedoresChart", edDashBars(topV.slice(0,5).map(x=>({
+    label:x.nombre,
+    value:x.total,
+    valueLabel:money(x.total),
+    sub:x.pedidos === 1 ? "1 pedido" : `${x.pedidos} pedidos`
+  }))));
   const topVEl = document.getElementById("dashTopVendedores");
-  if(topVEl) topVEl.innerHTML = table(["Vendedor","Pedidos","Ventas"], topV.map(x=>[x.nombre,x.pedidos,money(x.total)]));
+  if(topVEl) topVEl.innerHTML = table(["Vendedor","Pedidos","Ventas"], topV.slice(0,5).map(x=>[x.nombre,x.pedidos,money(x.total)]));
 
   const porCliente = {};
   pedidosPeriodo.forEach(p=>{
@@ -1941,9 +2250,15 @@ function renderDashboard(){
   const topC = Object.entries(porCliente)
     .map(([nombre,x])=>({nombre,...x,ticket:x.pedidos ? x.total/x.pedidos : 0}))
     .sort((a,b)=>b.total-a.total)
-    .slice(0,8);
+    .slice(0,5);
   const topCEl = document.getElementById("dashTopClientes");
-  if(topCEl) topCEl.innerHTML = table(["Cliente","Pedidos","Total comprado","Ticket prom.","Última compra"], topC.map(x=>[x.nombre,x.pedidos,money(x.total),money(x.ticket),x.ultima ? new Date(x.ultima+'T00:00:00').toLocaleDateString('es-AR') : '-']));
+  if(topCEl) topCEl.innerHTML = table(["Cliente","Pedidos","Total comprado","Ticket prom.","Última compra"], topC.map(x=>[
+    x.nombre,
+    x.pedidos,
+    money(x.total),
+    money(x.ticket),
+    x.ultima ? new Date(x.ultima+'T00:00:00').toLocaleDateString('es-AR') : '-'
+  ]));
 
   const porProducto = {};
   pedidosPeriodo.forEach(p=>{
@@ -1956,14 +2271,28 @@ function renderDashboard(){
       porProducto[key].total += Number(l.subtotal||0);
     });
   });
-  const topP = Object.values(porProducto).sort((a,b)=>b.total-a.total).slice(0,10);
+  const topP = Object.values(porProducto).sort((a,b)=>b.cantidad-a.cantidad || b.total-a.total).slice(0,10);
+  setHTML("dashProductosChart", edDashBars(topP.slice(0,5).map(x=>({
+    label:x.nombre,
+    value:x.cantidad,
+    valueLabel:String(x.cantidad),
+    sub:`${x.sku || "Sin SKU"} · ${money(x.total)}`
+  }))));
   const topPEl = document.getElementById("dashTopProductos");
   if(topPEl) topPEl.innerHTML = table(["SKU","Producto","Cantidad","Ventas"], topP.map(x=>[x.sku,x.nombre,x.cantidad,money(x.total)]));
 
-  const dashPedidos = document.getElementById("dashPedidos");
-  if(dashPedidos) dashPedidos.innerHTML=renderPedidoTable(pedidos.slice(0,8));
-}
+  setHTML("dashComisionesChart", `<div class="dash-commission-box">
+    <div class="dash-commission-mini"><span class="metric-title">Generadas</span><b>${money(comGeneradaPeriodo)}</b></div>
+    <div class="dash-commission-mini"><span class="metric-title">Pagadas</span><b>${money(comPagadaPeriodo)}</b></div>
+    <div class="dash-commission-mini"><span class="metric-title">Pendientes período</span><b>${money(comPendPeriodo)}</b></div>
+    <div class="dash-commission-mini"><span class="metric-title">Pendientes total</span><b>${money(comPendiente)}</b></div>
+  </div>`);
 
+  setHTML("dashActividad", edDashActividades(comisionesDetalle));
+
+  const dashPedidos = document.getElementById("dashPedidos");
+  if(dashPedidos) dashPedidos.innerHTML=renderPedidoTable(pedidos.slice(0,5));
+}
 
 function claseEstado(estado){
   const e = String(estado||"").toLowerCase()
