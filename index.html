@@ -461,6 +461,23 @@
     @media(max-width:700px){.cobranza-summary-grid{grid-template-columns:1fr}.cobranza-table th,.cobranza-table td{font-size:12px;padding:8px}}
 
 
+
+    /* ===== Ficha completa de clientes / logística ===== */
+    .cliente-ficha{border-color:#bfdbfe;background:linear-gradient(135deg,#fff,#f8fbff)}
+    .cliente-ficha-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .cliente-ficha-head h2{margin:0 0 5px}
+    .cliente-ficha-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:10px}
+    .cliente-ficha-item{border:1px solid var(--line);border-radius:12px;background:#fff;padding:11px}
+    .cliente-ficha-item .lbl{font-size:12px;color:var(--muted);font-weight:900;margin-bottom:5px}
+    .cliente-ficha-item .val{font-weight:800;color:#0f172a;white-space:pre-wrap}
+    .cliente-ficha-note{grid-column:1/-1}
+    .cliente-logistica-resumen{display:grid;gap:3px}
+    .cliente-info-pedido{display:grid;gap:5px}
+    .cliente-info-pedido-title{font-weight:900;margin-bottom:4px;color:#5f4700}
+    @media(max-width:1000px){.cliente-ficha-grid{grid-template-columns:1fr 1fr}}
+    @media(max-width:600px){.cliente-ficha-grid{grid-template-columns:1fr}}
+
+
 </style>
 </head>
 <body>
@@ -654,6 +671,7 @@ function toast(msg, tipo='', duracion=3500){
             <option value="">Método de entrega</option>
             <option>Flete</option>
             <option>Transporte</option>
+            <option>Correo</option>
             <option>Retira cliente</option>
           </select>
           <select id="pMetodoPago">
@@ -846,12 +864,33 @@ function toast(msg, tipo='', duracion=3500){
             <option value="">Vendedor diferido: ninguno</option>
           </select>
           <input id="cVendedorDiferidoPct" type="number" min="0" step="0.01" value="5" placeholder="% diferido">
+          <input id="cZona" placeholder="Zona / recorrido">
+          <select id="cTipoEnvioPreferido">
+            <option value="">Envío preferido</option>
+            <option>Flete</option>
+            <option>Transporte</option>
+            <option>Correo</option>
+            <option>Retira cliente</option>
+          </select>
+          <input id="cTransportePreferido" placeholder="Transporte / empresa">
+          <input id="cHorarioEntrega" placeholder="Horario para recibir pedidos">
+          <select id="cTipoCliente">
+            <option value="">Tipo de cliente</option>
+            <option>Local</option>
+            <option>Revendedor</option>
+            <option>Distribuidor</option>
+            <option>Particular</option>
+            <option>Otro</option>
+          </select>
+          <input id="cNroClienteOriginal" placeholder="N° cliente / referencia anterior">
+          <textarea id="cObservacionLogistica" placeholder="Observación logística: cómo recibe, a quién avisar, condiciones del local, etc." style="grid-column:1/-1"></textarea>
           <textarea id="cNotaInterna" placeholder="Nota interna del cliente (solo administración)" style="grid-column:1/-1"></textarea>
           <button class="btn" onclick="agregarCliente()">Agregar cliente</button>
         </div>
-        <div class="small" style="margin-top:10px">Los datos extra son opcionales y se usan para el remito.</div>
+        <div class="small" style="margin-top:10px">Los datos extra son opcionales y quedan en la ficha del cliente para logística, pedidos y administración.</div>
       </div>
       <div id="tablaClientes"></div>
+      <div id="fichaClienteBox"></div>
     </section>
 
     <section id="vendedores" class="section">
@@ -968,6 +1007,13 @@ function toast(msg, tipo='', duracion=3500){
           <code>alter table clientes add column if not exists vendedor_id text;</code><br>
           <code>alter table clientes add column if not exists vendedor_diferido_id text;</code><br>
           <code>alter table clientes add column if not exists vendedor_diferido_porcentaje numeric default 5;</code><br>
+          <code>alter table clientes add column if not exists zona text;</code><br>
+          <code>alter table clientes add column if not exists tipo_envio_preferido text;</code><br>
+          <code>alter table clientes add column if not exists transporte_preferido text;</code><br>
+          <code>alter table clientes add column if not exists horario_entrega text;</code><br>
+          <code>alter table clientes add column if not exists tipo_cliente text;</code><br>
+          <code>alter table clientes add column if not exists observacion_logistica text;</code><br>
+          <code>alter table clientes add column if not exists nro_cliente_original text;</code><br>
           <code>alter table productos add column if not exists comision_diferida boolean default false;</code><br>
           <code>alter table detalle_pedidos add column if not exists comision_diferida boolean default false;</code><br>
           <code>notify pgrst, 'reload schema';</code>
@@ -1571,7 +1617,8 @@ async function guardarPedido(){
         descuento_fijo: Math.max(0, Number(document.getElementById("pDescuento")?.value || 0)),
         vendedor_id: vendedor?.id ? String(vendedor.id) : "",
         vendedor_diferido_id: referidoSeleccionadoNuevoCliente?.id ? String(referidoSeleccionadoNuevoCliente.id) : "",
-        vendedor_diferido_porcentaje: referidoSeleccionadoNuevoCliente ? porcentajeComisionDiferidaSeleccionado() : 5
+        vendedor_diferido_porcentaje: referidoSeleccionadoNuevoCliente ? porcentajeComisionDiferidaSeleccionado() : 5,
+        tipo_envio_preferido: document.getElementById("pMetodoEntrega")?.value || ""
       };
 
       const resCliente = await insertarClienteSeguro(nuevoCliente, true);
@@ -3047,6 +3094,73 @@ function datosAsignacionClienteDesdeFormulario(){
     vendedor_diferido_porcentaje: vendedorDiferido ? pctDiferido : 5
   };
 }
+function datosLogisticaClienteDesdeFormulario(){
+  const val = id => (document.getElementById(id)?.value || "").trim();
+  return {
+    zona: val("cZona"),
+    tipo_envio_preferido: val("cTipoEnvioPreferido"),
+    transporte_preferido: val("cTransportePreferido"),
+    horario_entrega: val("cHorarioEntrega"),
+    tipo_cliente: val("cTipoCliente"),
+    observacion_logistica: val("cObservacionLogistica"),
+    nro_cliente_original: val("cNroClienteOriginal")
+  };
+}
+function limpiarFormularioCliente(){
+  ["cNombre","cTelefono","cDireccion","cLocalidad","cProvincia","cCodigoPostal","cCuit","cDescuentoFijo","cNotaInterna","cZona","cTipoEnvioPreferido","cTransportePreferido","cHorarioEntrega","cTipoCliente","cObservacionLogistica","cNroClienteOriginal"].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value="";
+  });
+  const vAsig = document.getElementById("cVendedorAsignado"); if(vAsig) vAsig.value = "";
+  const vDif = document.getElementById("cVendedorDiferido"); if(vDif) vDif.value = "";
+  const pctDif = document.getElementById("cVendedorDiferidoPct"); if(pctDif) pctDif.value = 5;
+}
+function metodoEntregaCliente(valor){
+  const n = normalizarBusqueda(valor);
+  if(!n) return "";
+  if(n.includes("flete")) return "Flete";
+  if(n.includes("transporte") || n.includes("expreso")) return "Transporte";
+  if(n.includes("correo")) return "Correo";
+  if(n.includes("retira") || n.includes("retiro")) return "Retira cliente";
+  return String(valor || "").trim();
+}
+function aplicarLogisticaClienteAlPedido(cliente){
+  if(!cliente) return;
+  const sel = document.getElementById("pMetodoEntrega");
+  const sugerido = metodoEntregaCliente(cliente.tipo_envio_preferido || cliente.metodo_entrega_preferido || cliente.envio_preferido || "");
+  if(sel && sugerido){
+    const opt = Array.from(sel.options).find(o=>normalizarBusqueda(o.value || o.textContent) === normalizarBusqueda(sugerido));
+    if(opt) sel.value = opt.value || opt.textContent;
+  }
+}
+function resumenLogisticaCliente(c){
+  const partes = [];
+  if(c.tipo_envio_preferido) partes.push(`<span class="badge">${escapeHtml(c.tipo_envio_preferido)}</span>`);
+  if(c.transporte_preferido) partes.push(`<div class="small">🚚 ${escapeHtml(c.transporte_preferido)}</div>`);
+  if(c.horario_entrega) partes.push(`<div class="small">🕘 ${escapeHtml(c.horario_entrega)}</div>`);
+  if(c.zona) partes.push(`<div class="small">📍 ${escapeHtml(c.zona)}</div>`);
+  if(c.observacion_logistica) partes.push(`<div class="small">⚠️ Con observación logística</div>`);
+  return partes.length ? `<div class="cliente-logistica-resumen">${partes.join("")}</div>` : "-";
+}
+function lineasInfoClientePedido(c){
+  const lineas = [];
+  if(c.nota_interna) lineas.push("📝 " + escapeHtml(c.nota_interna));
+  if(c.tipo_cliente) lineas.push("🏪 Tipo de cliente: " + escapeHtml(c.tipo_cliente));
+  if(c.tipo_envio_preferido) lineas.push("📦 Envío habitual: " + escapeHtml(c.tipo_envio_preferido));
+  if(c.transporte_preferido) lineas.push("🚚 Transporte: " + escapeHtml(c.transporte_preferido));
+  if(c.horario_entrega) lineas.push("🕘 Horario para recibir: " + escapeHtml(c.horario_entrega));
+  if(c.zona) lineas.push("📍 Zona: " + escapeHtml(c.zona));
+  if(c.observacion_logistica) lineas.push("⚠️ Logística: " + escapeHtml(c.observacion_logistica));
+  if(c.nro_cliente_original) lineas.push("# Referencia cliente: " + escapeHtml(c.nro_cliente_original));
+  const vendedorAsignado = nombreVendedorPorId(c.vendedor_id || c.vendedor_nombre || "");
+  const vendedorDiferido = nombreVendedorPorId(c.vendedor_diferido_id || c.vendedor_diferido_nombre || "");
+  if(vendedorAsignado) lineas.push("👨‍💼 Vendedor asignado: " + escapeHtml(vendedorAsignado));
+  if(vendedorDiferido) lineas.push("🔁 Diferido: " + escapeHtml(vendedorDiferido) + " (" + Number(c.vendedor_diferido_porcentaje || 5) + "%)");
+  return lineas;
+}
+function clienteFichaItem(label, value){
+  const v = value === 0 ? "0" : String(value || "").trim();
+  return `<div class="cliente-ficha-item"><div class="lbl">${escapeHtml(label)}</div><div class="val">${v ? escapeHtml(v) : "-"}</div></div>`;
+}
 async function insertarClienteSeguro(cliente, devolverRegistro=false){
   if(!sb) return {data:null,error:null};
   let q = sb.from("clientes").insert(cliente);
@@ -3054,12 +3168,12 @@ async function insertarClienteSeguro(cliente, devolverRegistro=false){
   let res = await q;
   if(!res.error) return res;
 
-  const {vendedor_id, vendedor_diferido_id, vendedor_diferido_porcentaje, ...sinAsignaciones} = cliente;
+  const {vendedor_id, vendedor_diferido_id, vendedor_diferido_porcentaje, zona, tipo_envio_preferido, transporte_preferido, horario_entrega, tipo_cliente, observacion_logistica, nro_cliente_original, ...sinAsignaciones} = cliente;
   q = sb.from("clientes").insert(sinAsignaciones);
   if(devolverRegistro) q = q.select().single();
   const resSin = await q;
   if(!resSin.error){
-    toast("Cliente guardado, pero Supabase todavía no tiene las columnas de vendedor asignado/diferido. Agregalas para que quede online.", "warning");
+    toast("Cliente guardado, pero Supabase todavía no tiene todas las columnas nuevas. Agregalas para guardar vendedor/logística online.", "warning");
     return resSin;
   }
 
@@ -3073,10 +3187,10 @@ async function actualizarClienteSeguro(id, cliente){
   let res = await sb.from("clientes").update(cliente).eq("id", id);
   if(!res.error) return res;
 
-  const {vendedor_id, vendedor_diferido_id, vendedor_diferido_porcentaje, ...sinAsignaciones} = cliente;
+  const {vendedor_id, vendedor_diferido_id, vendedor_diferido_porcentaje, zona, tipo_envio_preferido, transporte_preferido, horario_entrega, tipo_cliente, observacion_logistica, nro_cliente_original, ...sinAsignaciones} = cliente;
   const resSin = await sb.from("clientes").update(sinAsignaciones).eq("id", id);
   if(!resSin.error){
-    toast("Cliente modificado, pero Supabase todavía no tiene las columnas de vendedor asignado/diferido. Agregalas para guardar esos datos online.", "warning");
+    toast("Cliente modificado, pero Supabase todavía no tiene todas las columnas nuevas. Agregalas para guardar vendedor/logística online.", "warning");
     return resSin;
   }
   return res;
@@ -3102,6 +3216,7 @@ function aplicarAsignacionClienteAlPedido(cliente){
 async function agregarCliente(){
   const descuentoFijo = Math.max(0, Number(String(document.getElementById("cDescuentoFijo")?.value || 0).replace(",",".")) || 0);
   const asignacion = datosAsignacionClienteDesdeFormulario();
+  const logistica = datosLogisticaClienteDesdeFormulario();
   const c={
     nombre:document.getElementById("cNombre").value.trim(),
     telefono:document.getElementById("cTelefono").value.trim(),
@@ -3112,7 +3227,8 @@ async function agregarCliente(){
     cuit:document.getElementById("cCuit").value.trim(),
     descuento_fijo:descuentoFijo,
     nota_interna:document.getElementById("cNotaInterna")?.value.trim() || "",
-    ...asignacion
+    ...asignacion,
+    ...logistica
   };
   if(!c.nombre) return toast("Falta nombre.", "error");
   if(sb){
@@ -3121,15 +3237,12 @@ async function agregarCliente(){
     await cargarDesdeSupabase();
   }
   else clientes.push(c);
-  ["cNombre","cTelefono","cDireccion","cLocalidad","cProvincia","cCodigoPostal","cCuit","cDescuentoFijo","cNotaInterna"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
-  const vAsig = document.getElementById("cVendedorAsignado"); if(vAsig) vAsig.value = "";
-  const vDif = document.getElementById("cVendedorDiferido"); if(vDif) vDif.value = "";
-  const pctDif = document.getElementById("cVendedorDiferidoPct"); if(pctDif) pctDif.value = 5;
+  limpiarFormularioCliente();
   saveLocal(); renderAll();
 }
 function renderClientes(){
   document.getElementById("tablaClientes").innerHTML=table(
-    ["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT","Desc. fijo","Vendedor","Diferido","Nota interna","Acciones"],
+    ["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT","Desc. fijo","Vendedor","Diferido","Logística","Nota interna","Acciones"],
     clientes.map(c=>{
       const vendedorAsignado = nombreVendedorPorId(c.vendedor_id || c.vendedor_nombre || "");
       const vendedorDiferido = nombreVendedorPorId(c.vendedor_diferido_id || c.vendedor_diferido_nombre || "");
@@ -3144,8 +3257,9 @@ function renderClientes(){
         (Number(c.descuento_fijo||0) ? Number(c.descuento_fijo||0)+"%" : "-"),
         vendedorAsignado ? `<span class="badge green">${escapeHtml(vendedorAsignado)}</span>` : "-",
         vendedorDiferido ? `<span class="badge purple">${escapeHtml(vendedorDiferido)} · ${Number(c.vendedor_diferido_porcentaje || 5)}%</span>` : "-",
+        resumenLogisticaCliente(c),
         c.nota_interna ? `<span class="badge yellow">Con nota</span><div class="small">${escapeHtml(c.nota_interna)}</div>` : "-",
-        `<button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button> <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar</button> <button class="btn danger" onclick="eliminarCliente(${JSON.stringify(c.id)})">Eliminar</button>`
+        `<button class="btn secondary" onclick="verFichaCliente(${JSON.stringify(c.id)})">Ver ficha</button> <button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button> <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar</button> <button class="btn danger" onclick="eliminarCliente(${JSON.stringify(c.id)})">Eliminar</button>`
       ];
     })
   );
@@ -3189,6 +3303,21 @@ async function editarCliente(id){
   if(pctTxt === null) return;
   const vendedor_diferido_porcentaje = Math.max(0, Number(String(pctTxt).replace(",",".")) || 5);
 
+  const zona = prompt("Zona / recorrido", c.zona || "");
+  if(zona === null) return;
+  const tipo_envio_preferido = prompt("Tipo de envío preferido (Flete, Transporte, Correo, Retira cliente)", c.tipo_envio_preferido || "");
+  if(tipo_envio_preferido === null) return;
+  const transporte_preferido = prompt("Transporte / empresa", c.transporte_preferido || "");
+  if(transporte_preferido === null) return;
+  const horario_entrega = prompt("Horario para recibir pedidos", c.horario_entrega || "");
+  if(horario_entrega === null) return;
+  const tipo_cliente = prompt("Tipo de cliente (Local, Revendedor, Distribuidor, Particular, Otro)", c.tipo_cliente || "");
+  if(tipo_cliente === null) return;
+  const observacion_logistica = prompt("Observación logística", c.observacion_logistica || "");
+  if(observacion_logistica === null) return;
+  const nro_cliente_original = prompt("N° cliente / referencia anterior", c.nro_cliente_original || "");
+  if(nro_cliente_original === null) return;
+
   const nota_interna = prompt("Nota interna del cliente (solo administración)", c.nota_interna || "");
   if(nota_interna === null) return;
 
@@ -3204,6 +3333,13 @@ async function editarCliente(id){
     vendedor_id: vendedorPrincipal?.id ? String(vendedorPrincipal.id) : "",
     vendedor_diferido_id: vendedorDiferido?.id ? String(vendedorDiferido.id) : "",
     vendedor_diferido_porcentaje,
+    zona:String(zona).trim(),
+    tipo_envio_preferido:String(tipo_envio_preferido).trim(),
+    transporte_preferido:String(transporte_preferido).trim(),
+    horario_entrega:String(horario_entrega).trim(),
+    tipo_cliente:String(tipo_cliente).trim(),
+    observacion_logistica:String(observacion_logistica).trim(),
+    nro_cliente_original:String(nro_cliente_original).trim(),
     nota_interna:String(nota_interna).trim()
   };
   if(!nuevo.nombre) return toast("El nombre no puede quedar vacío.");
@@ -3286,19 +3422,56 @@ function autocompletarCliente(){
     if(inp){ inp.value = desc; }
     if(preset){ preset.value = ["0","5","10","15","20"].includes(String(desc)) ? String(desc) : "manual"; }
     aplicarAsignacionClienteAlPedido(encontrado);
+    aplicarLogisticaClienteAlPedido(encontrado);
     const notaBox = document.getElementById("pNotaInternaCliente");
     if(notaBox){
-      const partesNota = [];
-      if(encontrado.nota_interna) partesNota.push("📝 " + escapeHtml(encontrado.nota_interna));
-      const vendedorAsignado = nombreVendedorPorId(encontrado.vendedor_id || encontrado.vendedor_nombre || "");
-      const vendedorDiferido = nombreVendedorPorId(encontrado.vendedor_diferido_id || encontrado.vendedor_diferido_nombre || "");
-      if(vendedorAsignado) partesNota.push("👨‍💼 Vendedor asignado: " + escapeHtml(vendedorAsignado));
-      if(vendedorDiferido) partesNota.push("🔁 Diferido: " + escapeHtml(vendedorDiferido) + " (" + Number(encontrado.vendedor_diferido_porcentaje || 5) + "%)");
-      if(partesNota.length){ notaBox.style.display = "block"; notaBox.innerHTML = partesNota.join("<br>"); }
+      const partesNota = lineasInfoClientePedido(encontrado);
+      if(partesNota.length){ notaBox.style.display = "block"; notaBox.innerHTML = `<div class="cliente-info-pedido-title">📌 Información del cliente</div><div class="cliente-info-pedido">${partesNota.join("<br>")}</div>`; }
       else { notaBox.style.display = "none"; notaBox.innerHTML = ""; }
     }
     renderPedidoActual();
   }
+}
+function verFichaCliente(clienteId){
+  const c = clientes.find(x=>String(x.id)===String(clienteId));
+  if(!c) return toast("No encontré el cliente.", "error");
+  const box = document.getElementById("fichaClienteBox");
+  if(!box) return;
+  const vendedorAsignado = nombreVendedorPorId(c.vendedor_id || c.vendedor_nombre || "") || "";
+  const vendedorDiferido = nombreVendedorPorId(c.vendedor_diferido_id || c.vendedor_diferido_nombre || "") || "";
+  box.innerHTML = `<div class="card cliente-ficha">
+    <div class="cliente-ficha-head">
+      <div>
+        <h2>Ficha del cliente · ${escapeHtml(c.nombre || "Sin nombre")}</h2>
+        <div class="small">Información fija del cliente para venta, logística y administración.</div>
+      </div>
+      <div class="toolbar" style="margin:0">
+        <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar ficha</button>
+        <button class="btn secondary" onclick="document.getElementById('fichaClienteBox').innerHTML=''">Cerrar</button>
+      </div>
+    </div>
+    <div class="cliente-ficha-grid">
+      ${clienteFichaItem("Nombre / Razón social", c.nombre)}
+      ${clienteFichaItem("Teléfono", c.telefono)}
+      ${clienteFichaItem("CUIT", c.cuit)}
+      ${clienteFichaItem("Domicilio", c.direccion)}
+      ${clienteFichaItem("Localidad", c.localidad)}
+      ${clienteFichaItem("Provincia", c.provincia)}
+      ${clienteFichaItem("Código postal", c.codigo_postal || c.cp)}
+      ${clienteFichaItem("Descuento fijo", Number(c.descuento_fijo || 0) ? Number(c.descuento_fijo || 0) + "%" : "")}
+      ${clienteFichaItem("N° cliente / referencia", c.nro_cliente_original)}
+      ${clienteFichaItem("Vendedor asignado", vendedorAsignado)}
+      ${clienteFichaItem("Vendedor diferido", vendedorDiferido ? vendedorDiferido + " · " + Number(c.vendedor_diferido_porcentaje || 5) + "%" : "")}
+      ${clienteFichaItem("Tipo de cliente", c.tipo_cliente)}
+      ${clienteFichaItem("Zona / recorrido", c.zona)}
+      ${clienteFichaItem("Envío preferido", c.tipo_envio_preferido)}
+      ${clienteFichaItem("Transporte / empresa", c.transporte_preferido)}
+      ${clienteFichaItem("Horario para recibir", c.horario_entrega)}
+      <div class="cliente-ficha-item cliente-ficha-note"><div class="lbl">Observación logística</div><div class="val">${escapeHtml(c.observacion_logistica || "-")}</div></div>
+      <div class="cliente-ficha-item cliente-ficha-note"><div class="lbl">Nota interna</div><div class="val">${escapeHtml(c.nota_interna || "-")}</div></div>
+    </div>
+  </div>`;
+  box.scrollIntoView({behavior:"smooth", block:"start"});
 }
 async function verHistorialCliente(clienteId){
   const cliente = clientes.find(c=>c.id==clienteId);
@@ -4289,7 +4462,7 @@ async function verificarSupabase(){
   }
   box.innerHTML = "Verificando Supabase...";
   const checks = [
-    ["clientes",["id","nombre","telefono","descuento_fijo","vendedor_id","vendedor_diferido_id","vendedor_diferido_porcentaje"]],
+    ["clientes",["id","nombre","telefono","descuento_fijo","vendedor_id","vendedor_diferido_id","vendedor_diferido_porcentaje","zona","tipo_envio_preferido","transporte_preferido","horario_entrega","tipo_cliente","observacion_logistica","nro_cliente_original"]],
     ["vendedores",["id","nombre","porcentaje"]],
     ["productos",["sku","nombre","precio","comision_diferida"]],
     ["pedidos",["id","fecha","cliente_id","vendedor_id","total","subtotal","base_comision","porcentaje_comision","referido_nombre","referido_id","porcentaje_comision_diferida","base_comision_diferida","comision_diferida_importe","comision_estado","comision_pagada_fecha","comision_pagado_importe","comision_pagos"]],
