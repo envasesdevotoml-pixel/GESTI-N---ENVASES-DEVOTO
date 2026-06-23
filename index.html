@@ -767,6 +767,9 @@ function toast(msg, tipo='', duracion=3500){
           <b>SQL avanzado para Supabase:</b> usar solo si falta alguna columna.<br><br>
           <code>alter table pedidos add column if not exists comision_estado text default 'Pendiente';</code><br>
           <code>alter table pedidos add column if not exists comision_pagada_fecha timestamptz;</code><br>
+          <code>alter table pedidos add column if not exists comision_pagado_importe numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists comision_pagos jsonb default '[]'::jsonb;</code><br>
+          <code>alter table pedidos add column if not exists comision_pagada_fecha timestamptz;</code><br>
           <code>alter table pedidos add column if not exists subtotal numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists descuento_porcentaje numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists descuento_importe numeric default 0;</code><br>
@@ -2780,13 +2783,8 @@ function porcentajeComisionPedido(p){
 function pagosManualesComisionPedido(p, key){
   const k = String(key || (p.id + "__normal"));
 
-  // 1) Primero usa pagos separados por clave exacta: pedido__normal o pedido__dif.
-  const desdeLocal = comisionesPagosManual[k];
-  if(Array.isArray(desdeLocal)) return desdeLocal;
-
-  // 2) Compatibilidad con pagos guardados dentro del pedido.
-  // IMPORTANTE: si los pagos tienen comision_key, se filtran por esa comisión.
-  // Así un pago al vendedor principal NO aparece como pago del referido/diferido.
+  // Prioridad: datos del pedido cargados desde Supabase.
+  // Antes se priorizaba localStorage y eso podía mostrar pagos que NO estaban guardados en Supabase.
   if(Array.isArray(p.comision_pagos)){
     const conClave = p.comision_pagos.filter(x=>x && x.comision_key);
     if(conClave.length) return conClave.filter(x=>String(x.comision_key)===k);
@@ -2794,7 +2792,12 @@ function pagosManualesComisionPedido(p, key){
     // Pagos viejos sin comision_key: solo se consideran para la comisión normal.
     // Nunca para la diferida, porque antes eso mezclaba vendedores.
     if(!esComisionDiferidaKey(k)) return p.comision_pagos;
+    return [];
   }
+
+  // Fallback viejo: solo se usa si el pedido todavía no trae comision_pagos desde Supabase.
+  const desdeLocal = comisionesPagosManual[k];
+  if(Array.isArray(desdeLocal)) return desdeLocal;
 
   return [];
 }
@@ -3042,18 +3045,30 @@ function renderComisiones(){
 }
 
 async function guardarEstadoComisionSupabase(pedidoId, estado, fecha, pagadoImporte, pagos){
-  if(!sb) return;
-  const camposPosibles = [
-    {comision_estado:estado, comision_pagada_fecha:fecha, comision_pagado_importe:pagadoImporte, comision_pagos:JSON.stringify(pagos||[])},
-    {commission_status:estado, commission_paid_at:fecha, commission_paid_amount:pagadoImporte, commission_payments:JSON.stringify(pagos||[])},
-    {comision_estado:estado, comision_pagada_fecha:fecha},
-    {commission_status:estado, commission_paid_at:fecha}
-  ];
-
-  for(const patch of camposPosibles){
-    const {error} = await sb.from("pedidos").update(patch).eq("id", pedidoId);
-    if(!error) return;
+  if(!sb){
+    toast("No hay conexión activa con Supabase. El pago no se guardó.", "error");
+    return false;
   }
+
+  const patch = {
+    comision_estado: estado || "Pendiente",
+    comision_pagada_fecha: fecha || null,
+    comision_pagado_importe: Number(pagadoImporte || 0),
+    comision_pagos: Array.isArray(pagos) ? pagos : []
+  };
+
+  const {error} = await sb
+    .from("pedidos")
+    .update(patch)
+    .eq("id", pedidoId);
+
+  if(error){
+    console.error("Error guardando pago de comisión en Supabase:", error);
+    toast("No se pudo guardar el pago de comisión en Supabase. Revisá que existan las columnas nuevas en la tabla pedidos.", "error", 6500);
+    return false;
+  }
+
+  return true;
 }
 
 async function marcarComisionPagada(pedidoId){
@@ -3068,20 +3083,39 @@ async function marcarComisionPagada(pedidoId){
 async function marcarComisionPendiente(pedidoId){
   const key = pedidoId;
   if(!confirm("Esto borra los pagos registrados de esta comisión y la deja pendiente. ¿Confirmás?")) return;
+
+  const pedido = pedidoPorComisionKey(key);
+  if(!pedido) return;
+
+  const nuevosPagosPedido = Array.isArray(pedido.comision_pagos)
+    ? pedido.comision_pagos.filter(x=>String(x.comision_key||"") !== String(key))
+    : [];
+
+  const nuevoEstadoNormal = !esComisionDiferidaKey(key) ? "Pendiente" : (pedido.comision_estado || "Pendiente");
+  const nuevaFechaNormal = !esComisionDiferidaKey(key) ? null : (pedido.comision_pagada_fecha || null);
+  const nuevoPagadoNormal = !esComisionDiferidaKey(key) ? 0 : Number(pedido.comision_pagado_importe || 0);
+
+  const guardado = await guardarEstadoComisionSupabase(
+    comisionKeyPedido(key),
+    nuevoEstadoNormal,
+    nuevaFechaNormal,
+    nuevoPagadoNormal,
+    nuevosPagosPedido
+  );
+  if(!guardado) return;
+
   delete comisionesPagas[key];
   delete comisionesPagosManual[key];
-  const pedido = pedidoPorComisionKey(key);
-  if(pedido){
-    pedido.comision_pagos = Array.isArray(pedido.comision_pagos) ? pedido.comision_pagos.filter(x=>String(x.comision_key||"") !== String(key)) : [];
-    if(!esComisionDiferidaKey(key)){
-      pedido.comision_estado = "Pendiente";
-      pedido.comision_pagada_fecha = "";
-      pedido.comision_pagado_importe = 0;
-    }
+  pedido.comision_pagos = nuevosPagosPedido;
+  if(!esComisionDiferidaKey(key)){
+    pedido.comision_estado = "Pendiente";
+    pedido.comision_pagada_fecha = "";
+    pedido.comision_pagado_importe = 0;
   }
+
   saveLocal();
-  if(pedido) await guardarEstadoComisionSupabase(comisionKeyPedido(key), pedido.comision_estado || "Pendiente", pedido.comision_pagada_fecha || null, Number(pedido.comision_pagado_importe||0), pedido.comision_pagos || []);
   renderAll();
+  toast("Comisión reiniciada y guardada en Supabase.", "success");
 }
 
 async function agregarPagoComision(pedidoId, importe, nota){
@@ -3112,17 +3146,30 @@ async function agregarPagoComision(pedidoId, importe, nota){
   const pagado = pagos.reduce((a,x)=>a+Number(x.importe||0),0);
   const estado = pagado >= generado ? "Pagada" : "Parcial";
 
+  // Armamos el nuevo estado, pero NO lo guardamos localmente hasta confirmar Supabase.
+  // Así evitamos que una computadora muestre pagos que no existen en la base.
+  const pagosPedidoPrevios = Array.isArray(pedido.comision_pagos) ? pedido.comision_pagos : [];
+  const pagosDeOtrasComisiones = pagosPedidoPrevios.filter(x=>String(x.comision_key||"") !== String(key));
+  const nuevosPagosPedido = pagosDeOtrasComisiones.concat(pagos);
+
+  const estadoNormal = !esComisionDiferidaKey(key) ? estado : (pedido.comision_estado || "Pendiente");
+  const fechaNormal = !esComisionDiferidaKey(key) ? fecha : (pedido.comision_pagada_fecha || null);
+  const pagadoNormal = !esComisionDiferidaKey(key) ? Math.min(pagado, generado) : Number(pedido.comision_pagado_importe || 0);
+
+  const guardado = await guardarEstadoComisionSupabase(
+    comisionKeyPedido(key),
+    estadoNormal,
+    fechaNormal,
+    pagadoNormal,
+    nuevosPagosPedido
+  );
+  if(!guardado) return;
+
   comisionesPagosManual[key] = pagos;
   if(estado === "Pagada") comisionesPagas[key] = {estado:"Pagada", fecha};
   else delete comisionesPagas[key];
 
-  // Guardamos todos los pagos del pedido en un mismo array, pero identificados por comision_key.
-  // Esto permite persistir normal y diferida sin que se mezclen.
-  const pagosPedidoPrevios = Array.isArray(pedido.comision_pagos) ? pedido.comision_pagos : [];
-  const pagosDeOtrasComisiones = pagosPedidoPrevios.filter(x=>String(x.comision_key||"") !== String(key));
-  pedido.comision_pagos = pagosDeOtrasComisiones.concat(pagos);
-
-  // Los campos simples del pedido se mantienen solo para la comisión normal, por compatibilidad.
+  pedido.comision_pagos = nuevosPagosPedido;
   if(!esComisionDiferidaKey(key)){
     pedido.comision_estado = estado;
     pedido.comision_pagada_fecha = fecha;
@@ -3130,12 +3177,6 @@ async function agregarPagoComision(pedidoId, importe, nota){
   }
 
   saveLocal();
-
-  // Se persiste el array completo con comision_key. El estado simple solo representa la comisión normal.
-  const estadoNormal = !esComisionDiferidaKey(key) ? estado : (pedido.comision_estado || "Pendiente");
-  const fechaNormal = !esComisionDiferidaKey(key) ? fecha : (pedido.comision_pagada_fecha || null);
-  const pagadoNormal = !esComisionDiferidaKey(key) ? pedido.comision_pagado_importe : Number(pedido.comision_pagado_importe||0);
-  await guardarEstadoComisionSupabase(comisionKeyPedido(key), estadoNormal, fechaNormal, pagadoNormal, pedido.comision_pagos);
   renderAll();
 }
 
@@ -3529,7 +3570,7 @@ async function verificarSupabase(){
     ["clientes",["id","nombre","telefono","descuento_fijo"]],
     ["vendedores",["id","nombre","porcentaje"]],
     ["productos",["sku","nombre","precio","comision_diferida"]],
-    ["pedidos",["id","fecha","cliente_id","vendedor_id","total","subtotal","base_comision","porcentaje_comision","referido_nombre","referido_id","porcentaje_comision_diferida","base_comision_diferida","comision_diferida_importe"]],
+    ["pedidos",["id","fecha","cliente_id","vendedor_id","total","subtotal","base_comision","porcentaje_comision","referido_nombre","referido_id","porcentaje_comision_diferida","base_comision_diferida","comision_diferida_importe","comision_estado","comision_pagada_fecha","comision_pagado_importe","comision_pagos"]],
     ["detalle_pedidos",["id","pedido_id","sku","cantidad","subtotal","comision_diferida"]],
     ["comisiones",["id"]]
   ];
