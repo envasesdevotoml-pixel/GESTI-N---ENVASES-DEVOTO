@@ -839,6 +839,13 @@ function toast(msg, tipo='', duracion=3500){
           <input id="cCodigoPostal" placeholder="Código postal">
           <input id="cCuit" placeholder="CUIT">
           <input id="cDescuentoFijo" type="number" min="0" step="0.01" placeholder="Descuento fijo %">
+          <select id="cVendedorAsignado">
+            <option value="">Vendedor asignado: ninguno</option>
+          </select>
+          <select id="cVendedorDiferido">
+            <option value="">Vendedor diferido: ninguno</option>
+          </select>
+          <input id="cVendedorDiferidoPct" type="number" min="0" step="0.01" value="5" placeholder="% diferido">
           <textarea id="cNotaInterna" placeholder="Nota interna del cliente (solo administración)" style="grid-column:1/-1"></textarea>
           <button class="btn" onclick="agregarCliente()">Agregar cliente</button>
         </div>
@@ -958,6 +965,9 @@ function toast(msg, tipo='', duracion=3500){
           <code>alter table pedidos add column if not exists base_comision_diferida numeric default 0;</code><br>
           <code>alter table pedidos add column if not exists comision_diferida_importe numeric default 0;</code><br>
           <code>alter table clientes add column if not exists descuento_fijo numeric default 0;</code><br>
+          <code>alter table clientes add column if not exists vendedor_id text;</code><br>
+          <code>alter table clientes add column if not exists vendedor_diferido_id text;</code><br>
+          <code>alter table clientes add column if not exists vendedor_diferido_porcentaje numeric default 5;</code><br>
           <code>alter table productos add column if not exists comision_diferida boolean default false;</code><br>
           <code>alter table detalle_pedidos add column if not exists comision_diferida boolean default false;</code><br>
           <code>notify pgrst, 'reload schema';</code>
@@ -1549,6 +1559,7 @@ async function guardarPedido(){
     clienteExistente = data && data.length ? data[0] : null;
 
     if(!clienteExistente){
+      const referidoSeleccionadoNuevoCliente = vendedorReferidoSeleccionado();
       const nuevoCliente = {
         nombre: clienteNombre,
         telefono: clienteTelefono,
@@ -1557,21 +1568,15 @@ async function guardarPedido(){
         provincia: "",
         codigo_postal: "",
         cuit: "",
-        descuento_fijo: Math.max(0, Number(document.getElementById("pDescuento")?.value || 0))
+        descuento_fijo: Math.max(0, Number(document.getElementById("pDescuento")?.value || 0)),
+        vendedor_id: vendedor?.id ? String(vendedor.id) : "",
+        vendedor_diferido_id: referidoSeleccionadoNuevoCliente?.id ? String(referidoSeleccionadoNuevoCliente.id) : "",
+        vendedor_diferido_porcentaje: referidoSeleccionadoNuevoCliente ? porcentajeComisionDiferidaSeleccionado() : 5
       };
 
-      let resCliente = await sb
-        .from("clientes")
-        .insert(nuevoCliente)
-        .select()
-        .single();
+      const resCliente = await insertarClienteSeguro(nuevoCliente, true);
 
-      if(resCliente.error){
-        const clienteBasico = {nombre: clienteNombre, telefono: clienteTelefono, direccion: ""};
-        resCliente = await sb.from("clientes").insert(clienteBasico).select().single();
-      }
-
-      if(resCliente.error) return toast("Error creando cliente: " + resCliente.error.message);
+      if(resCliente.error) return toast("Error creando cliente: " + resCliente.error.message, "error");
       clienteExistente = resCliente.data;
     }
   }
@@ -3004,8 +3009,99 @@ function renderProductos(){
   const data=productos.filter(p=>[p.sku,p.nombre,p.codigo_barras,p.categoria].join(" ").toLowerCase().includes(q)).slice(0,250);
   document.getElementById("tablaProductos").innerHTML=table(["SKU","Producto","Código","Precio","Categoría","Medidas"],data.map(p=>[p.sku,p.nombre,p.codigo_barras||'',money(p.precio),p.categoria||'',p.medidas||'']));
 }
+
+function vendedorPorIdONombre(valor){
+  const v = String(valor ?? "").trim();
+  if(!v) return null;
+  const nv = normalizarBusqueda(v);
+  return vendedores.find(x=>
+    String(x.id ?? "") === v ||
+    normalizarBusqueda(x.nombre || "") === nv
+  ) || null;
+}
+function indiceVendedorPorIdONombre(valor){
+  const v = String(valor ?? "").trim();
+  if(!v) return -1;
+  const nv = normalizarBusqueda(v);
+  return vendedores.findIndex(x=>
+    String(x.id ?? "") === v ||
+    normalizarBusqueda(x.nombre || "") === nv
+  );
+}
+function nombreVendedorPorId(valor){
+  const v = vendedorPorIdONombre(valor);
+  return v ? (v.nombre || "") : "";
+}
+function textoOpcionesVendedores(){
+  return vendedores.map(v=>v.nombre).filter(Boolean).join(", ");
+}
+function datosAsignacionClienteDesdeFormulario(){
+  const idxPrincipal = document.getElementById("cVendedorAsignado")?.value ?? "";
+  const idxDiferido = document.getElementById("cVendedorDiferido")?.value ?? "";
+  const vendedorPrincipal = idxPrincipal !== "" ? vendedores[Number(idxPrincipal)] : null;
+  const vendedorDiferido = idxDiferido !== "" ? vendedores[Number(idxDiferido)] : null;
+  const pctDiferido = Math.max(0, Number(String(document.getElementById("cVendedorDiferidoPct")?.value || 5).replace(",",".")) || 5);
+  return {
+    vendedor_id: vendedorPrincipal?.id ? String(vendedorPrincipal.id) : "",
+    vendedor_diferido_id: vendedorDiferido?.id ? String(vendedorDiferido.id) : "",
+    vendedor_diferido_porcentaje: vendedorDiferido ? pctDiferido : 5
+  };
+}
+async function insertarClienteSeguro(cliente, devolverRegistro=false){
+  if(!sb) return {data:null,error:null};
+  let q = sb.from("clientes").insert(cliente);
+  if(devolverRegistro) q = q.select().single();
+  let res = await q;
+  if(!res.error) return res;
+
+  const {vendedor_id, vendedor_diferido_id, vendedor_diferido_porcentaje, ...sinAsignaciones} = cliente;
+  q = sb.from("clientes").insert(sinAsignaciones);
+  if(devolverRegistro) q = q.select().single();
+  const resSin = await q;
+  if(!resSin.error){
+    toast("Cliente guardado, pero Supabase todavía no tiene las columnas de vendedor asignado/diferido. Agregalas para que quede online.", "warning");
+    return resSin;
+  }
+
+  const basico = {nombre:cliente.nombre, telefono:cliente.telefono || "", direccion:cliente.direccion || ""};
+  q = sb.from("clientes").insert(basico);
+  if(devolverRegistro) q = q.select().single();
+  return await q;
+}
+async function actualizarClienteSeguro(id, cliente){
+  if(!sb) return {error:null};
+  let res = await sb.from("clientes").update(cliente).eq("id", id);
+  if(!res.error) return res;
+
+  const {vendedor_id, vendedor_diferido_id, vendedor_diferido_porcentaje, ...sinAsignaciones} = cliente;
+  const resSin = await sb.from("clientes").update(sinAsignaciones).eq("id", id);
+  if(!resSin.error){
+    toast("Cliente modificado, pero Supabase todavía no tiene las columnas de vendedor asignado/diferido. Agregalas para guardar esos datos online.", "warning");
+    return resSin;
+  }
+  return res;
+}
+function aplicarAsignacionClienteAlPedido(cliente){
+  if(!cliente) return;
+  const selVendedor = document.getElementById("pVendedor");
+  const selReferido = document.getElementById("pReferido");
+  const pctDiferido = document.getElementById("pComisionDiferidaPct");
+
+  const idxPrincipal = indiceVendedorPorIdONombre(cliente.vendedor_id || cliente.vendedor_nombre || "");
+  if(selVendedor && idxPrincipal >= 0) selVendedor.value = String(idxPrincipal);
+
+  const idxDiferido = indiceVendedorPorIdONombre(cliente.vendedor_diferido_id || cliente.vendedor_diferido_nombre || "");
+  if(selReferido){
+    selReferido.value = idxDiferido >= 0 ? String(idxDiferido) : "";
+  }
+  if(pctDiferido){
+    pctDiferido.value = idxDiferido >= 0 ? Number(cliente.vendedor_diferido_porcentaje || 5) : 5;
+  }
+}
+
 async function agregarCliente(){
   const descuentoFijo = Math.max(0, Number(String(document.getElementById("cDescuentoFijo")?.value || 0).replace(",",".")) || 0);
+  const asignacion = datosAsignacionClienteDesdeFormulario();
   const c={
     nombre:document.getElementById("cNombre").value.trim(),
     telefono:document.getElementById("cTelefono").value.trim(),
@@ -3015,38 +3111,44 @@ async function agregarCliente(){
     codigo_postal:document.getElementById("cCodigoPostal").value.trim(),
     cuit:document.getElementById("cCuit").value.trim(),
     descuento_fijo:descuentoFijo,
-    nota_interna:document.getElementById("cNotaInterna")?.value.trim() || ""
+    nota_interna:document.getElementById("cNotaInterna")?.value.trim() || "",
+    ...asignacion
   };
   if(!c.nombre) return toast("Falta nombre.", "error");
   if(sb){
-    let res = await sb.from("clientes").insert(c);
-    if(res.error){
-      const basico = {nombre:c.nombre, telefono:c.telefono, direccion:c.direccion};
-      res = await sb.from("clientes").insert(basico);
-      if(!res.error && c.descuento_fijo){
-        toast("Cliente guardado, pero Supabase todavía no tiene la columna descuento_fijo. Agregala para guardar el descuento preferencial.", "success");
-      }
-    }
-    if(res.error) return toast(res.error.message);
+    const res = await insertarClienteSeguro(c);
+    if(res.error) return toast(res.error.message, "error");
     await cargarDesdeSupabase();
   }
   else clientes.push(c);
   ["cNombre","cTelefono","cDireccion","cLocalidad","cProvincia","cCodigoPostal","cCuit","cDescuentoFijo","cNotaInterna"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
+  const vAsig = document.getElementById("cVendedorAsignado"); if(vAsig) vAsig.value = "";
+  const vDif = document.getElementById("cVendedorDiferido"); if(vDif) vDif.value = "";
+  const pctDif = document.getElementById("cVendedorDiferidoPct"); if(pctDif) pctDif.value = 5;
   saveLocal(); renderAll();
 }
 function renderClientes(){
-  document.getElementById("tablaClientes").innerHTML=table(["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT","Desc. fijo","Nota interna","Acciones"],clientes.map(c=>[
-    escapeHtml(c.nombre),
-    escapeHtml(c.telefono||''),
-    escapeHtml(c.direccion||''),
-    escapeHtml(c.localidad||''),
-    escapeHtml(c.provincia||''),
-    escapeHtml(c.codigo_postal||c.cp||''),
-    escapeHtml(c.cuit||''),
-    (Number(c.descuento_fijo||0) ? Number(c.descuento_fijo||0)+"%" : "-"),
-    c.nota_interna ? `<span class="badge yellow">Con nota</span><div class="small">${escapeHtml(c.nota_interna)}</div>` : "-",
-    `<button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button> <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar</button> <button class="btn danger" onclick="eliminarCliente(${JSON.stringify(c.id)})">Eliminar</button>`
-  ]));
+  document.getElementById("tablaClientes").innerHTML=table(
+    ["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT","Desc. fijo","Vendedor","Diferido","Nota interna","Acciones"],
+    clientes.map(c=>{
+      const vendedorAsignado = nombreVendedorPorId(c.vendedor_id || c.vendedor_nombre || "");
+      const vendedorDiferido = nombreVendedorPorId(c.vendedor_diferido_id || c.vendedor_diferido_nombre || "");
+      return [
+        escapeHtml(c.nombre),
+        escapeHtml(c.telefono||''),
+        escapeHtml(c.direccion||''),
+        escapeHtml(c.localidad||''),
+        escapeHtml(c.provincia||''),
+        escapeHtml(c.codigo_postal||c.cp||''),
+        escapeHtml(c.cuit||''),
+        (Number(c.descuento_fijo||0) ? Number(c.descuento_fijo||0)+"%" : "-"),
+        vendedorAsignado ? `<span class="badge green">${escapeHtml(vendedorAsignado)}</span>` : "-",
+        vendedorDiferido ? `<span class="badge purple">${escapeHtml(vendedorDiferido)} · ${Number(c.vendedor_diferido_porcentaje || 5)}%</span>` : "-",
+        c.nota_interna ? `<span class="badge yellow">Con nota</span><div class="small">${escapeHtml(c.nota_interna)}</div>` : "-",
+        `<button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button> <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar</button> <button class="btn danger" onclick="eliminarCliente(${JSON.stringify(c.id)})">Eliminar</button>`
+      ];
+    })
+  );
 }
 
 async function editarCliente(id){
@@ -3069,19 +3171,45 @@ async function editarCliente(id){
   const descuentoTxt = prompt("Descuento fijo % para este cliente", c.descuento_fijo || 0);
   if(descuentoTxt === null) return;
   const descuento_fijo = Math.max(0, Number(String(descuentoTxt).replace(",",".")) || 0);
+
+  const opciones = textoOpcionesVendedores();
+  const vendedorActual = nombreVendedorPorId(c.vendedor_id || c.vendedor_nombre || "");
+  const vendedorTxt = prompt("Vendedor asignado (escribí el nombre exacto o dejá vacío para ninguno)\nOpciones: " + opciones, vendedorActual);
+  if(vendedorTxt === null) return;
+  const vendedorPrincipal = String(vendedorTxt).trim() ? vendedorPorIdONombre(vendedorTxt) : null;
+  if(String(vendedorTxt).trim() && !vendedorPrincipal) return toast("No encontré ese vendedor asignado. Revisá el nombre exacto.", "error");
+
+  const vendedorDifActual = nombreVendedorPorId(c.vendedor_diferido_id || c.vendedor_diferido_nombre || "");
+  const vendedorDifTxt = prompt("Vendedor diferido / referido (dejá vacío si no corresponde)\nOpciones: " + opciones, vendedorDifActual);
+  if(vendedorDifTxt === null) return;
+  const vendedorDiferido = String(vendedorDifTxt).trim() ? vendedorPorIdONombre(vendedorDifTxt) : null;
+  if(String(vendedorDifTxt).trim() && !vendedorDiferido) return toast("No encontré ese vendedor diferido. Revisá el nombre exacto.", "error");
+
+  const pctTxt = prompt("% comisión diferida para este cliente", c.vendedor_diferido_porcentaje || 5);
+  if(pctTxt === null) return;
+  const vendedor_diferido_porcentaje = Math.max(0, Number(String(pctTxt).replace(",",".")) || 5);
+
   const nota_interna = prompt("Nota interna del cliente (solo administración)", c.nota_interna || "");
   if(nota_interna === null) return;
-  const nuevo = {nombre:nombre.trim(), telefono:telefono.trim(), direccion:direccion.trim(), localidad:localidad.trim(), provincia:provincia.trim(), codigo_postal:String(codigo_postal).trim(), cuit:String(cuit).trim(), descuento_fijo, nota_interna:String(nota_interna).trim()};
+
+  const nuevo = {
+    nombre:nombre.trim(),
+    telefono:telefono.trim(),
+    direccion:direccion.trim(),
+    localidad:localidad.trim(),
+    provincia:provincia.trim(),
+    codigo_postal:String(codigo_postal).trim(),
+    cuit:String(cuit).trim(),
+    descuento_fijo,
+    vendedor_id: vendedorPrincipal?.id ? String(vendedorPrincipal.id) : "",
+    vendedor_diferido_id: vendedorDiferido?.id ? String(vendedorDiferido.id) : "",
+    vendedor_diferido_porcentaje,
+    nota_interna:String(nota_interna).trim()
+  };
   if(!nuevo.nombre) return toast("El nombre no puede quedar vacío.");
   if(sb && c.id){
-    let {error}=await sb.from("clientes").update(nuevo).eq("id", c.id);
-    if(error){
-      const {descuento_fijo, nota_interna, ...sinExtras} = nuevo;
-      const r = await sb.from("clientes").update(sinExtras).eq("id", c.id);
-      error = r.error;
-      if(!error) toast("Cliente modificado, pero Supabase todavía no tiene columna descuento_fijo y/o nota_interna para guardar esos datos online.", "warning");
-    }
-    if(error) return toast("No se pudo modificar el cliente: "+error.message);
+    const {error}=await actualizarClienteSeguro(c.id, nuevo);
+    if(error) return toast("No se pudo modificar el cliente: "+error.message, "error");
     await cargarDesdeSupabase();
   }else{
     Object.assign(c,nuevo);
@@ -3157,9 +3285,16 @@ function autocompletarCliente(){
     const preset = document.getElementById("pDescuentoPreset");
     if(inp){ inp.value = desc; }
     if(preset){ preset.value = ["0","5","10","15","20"].includes(String(desc)) ? String(desc) : "manual"; }
+    aplicarAsignacionClienteAlPedido(encontrado);
     const notaBox = document.getElementById("pNotaInternaCliente");
     if(notaBox){
-      if(encontrado.nota_interna){ notaBox.style.display = "block"; notaBox.innerHTML = "📝 Nota interna del cliente: " + escapeHtml(encontrado.nota_interna); }
+      const partesNota = [];
+      if(encontrado.nota_interna) partesNota.push("📝 " + escapeHtml(encontrado.nota_interna));
+      const vendedorAsignado = nombreVendedorPorId(encontrado.vendedor_id || encontrado.vendedor_nombre || "");
+      const vendedorDiferido = nombreVendedorPorId(encontrado.vendedor_diferido_id || encontrado.vendedor_diferido_nombre || "");
+      if(vendedorAsignado) partesNota.push("👨‍💼 Vendedor asignado: " + escapeHtml(vendedorAsignado));
+      if(vendedorDiferido) partesNota.push("🔁 Diferido: " + escapeHtml(vendedorDiferido) + " (" + Number(encontrado.vendedor_diferido_porcentaje || 5) + "%)");
+      if(partesNota.length){ notaBox.style.display = "block"; notaBox.innerHTML = partesNota.join("<br>"); }
       else { notaBox.style.display = "none"; notaBox.innerHTML = ""; }
     }
     renderPedidoActual();
@@ -3231,15 +3366,26 @@ function renderVendedores(){
   // Preservar valores actuales antes de reconstruir los selects
   const selVend = document.getElementById("pVendedor");
   const selRef  = document.getElementById("pReferido");
+  const selClienteVend = document.getElementById("cVendedorAsignado");
+  const selClienteDif = document.getElementById("cVendedorDiferido");
+
   const prevVendedor = selVend ? selVend.value : "";
   const prevReferido = selRef  ? selRef.value  : "";
+  const prevClienteVend = selClienteVend ? selClienteVend.value : "";
+  const prevClienteDif = selClienteDif ? selClienteDif.value : "";
 
-  selVend.innerHTML='<option value="">Seleccionar vendedor</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
-  if(selRef) selRef.innerHTML='<option value="">Referido / comisión diferida: Ninguno</option>'+vendedores.map((v,i)=>`<option value="${i}">${v.nombre}</option>`).join('');
+  const opciones = vendedores.map((v,i)=>`<option value="${i}">${escapeHtml(v.nombre)}</option>`).join('');
+  if(selVend) selVend.innerHTML='<option value="">Seleccionar vendedor</option>'+opciones;
+  if(selRef) selRef.innerHTML='<option value="">Referido / comisión diferida: Ninguno</option>'+opciones;
+  if(selClienteVend) selClienteVend.innerHTML='<option value="">Vendedor asignado: ninguno</option>'+opciones;
+  if(selClienteDif) selClienteDif.innerHTML='<option value="">Vendedor diferido: ninguno</option>'+opciones;
 
   // Restaurar valores si existían
-  if(prevVendedor !== "") selVend.value = prevVendedor;
+  if(selVend && prevVendedor !== "") selVend.value = prevVendedor;
   if(selRef && prevReferido !== "") selRef.value = prevReferido;
+  if(selClienteVend && prevClienteVend !== "") selClienteVend.value = prevClienteVend;
+  if(selClienteDif && prevClienteDif !== "") selClienteDif.value = prevClienteDif;
+
   document.getElementById("tablaVendedores").innerHTML=table(
     ["Nombre","Teléfono","Comisión","Activo","Acciones"],
     vendedores.map(v=>[
@@ -4143,7 +4289,7 @@ async function verificarSupabase(){
   }
   box.innerHTML = "Verificando Supabase...";
   const checks = [
-    ["clientes",["id","nombre","telefono","descuento_fijo"]],
+    ["clientes",["id","nombre","telefono","descuento_fijo","vendedor_id","vendedor_diferido_id","vendedor_diferido_porcentaje"]],
     ["vendedores",["id","nombre","porcentaje"]],
     ["productos",["sku","nombre","precio","comision_diferida"]],
     ["pedidos",["id","fecha","cliente_id","vendedor_id","total","subtotal","base_comision","porcentaje_comision","referido_nombre","referido_id","porcentaje_comision_diferida","base_comision_diferida","comision_diferida_importe","comision_estado","comision_pagada_fecha","comision_pagado_importe","comision_pagos"]],
