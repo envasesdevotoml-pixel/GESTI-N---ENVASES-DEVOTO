@@ -525,7 +525,7 @@ function toast(msg, tipo='', duracion=3500){
           <div class="dash-note" id="mComisionesSub">Saldo pendiente del período.</div>
         </div>
         <div class="card dash-kpi red">
-          <div class="metric-title">Productos vendidos</div>
+          <div class="metric-title">Unidades vendidas</div>
           <div class="metric-value" id="mProductosVendidosPeriodo">0</div>
           <div class="dash-note" id="mProductosVendidosSub">Unidades cargadas en pedidos.</div>
         </div>
@@ -534,11 +534,18 @@ function toast(msg, tipo='', duracion=3500){
       <div class="dash-chart-grid">
         <div class="card">
           <div class="dash-card-title">
-            <h2>Ventas por período</h2>
+            <h2>Días con ventas</h2>
             <span class="dash-pill" id="dashVentasPorDiaDetalle">Sin datos</span>
           </div>
           <div id="dashVentasPorDia"></div>
         </div>
+        <div class="card">
+          <div class="dash-card-title"><h2>Última actividad</h2><span class="dash-pill">Reciente</span></div>
+          <div id="dashActividad"></div>
+        </div>
+      </div>
+
+      <div class="dash-three">
         <div class="card">
           <div class="dash-card-title">
             <h2>Estado de pedidos</h2>
@@ -546,9 +553,6 @@ function toast(msg, tipo='', duracion=3500){
           </div>
           <div id="dashEstadosResumen"></div>
         </div>
-      </div>
-
-      <div class="dash-three">
         <div class="card">
           <div class="dash-card-title"><h2>Ventas por vendedor</h2><span class="dash-pill">Top 5</span></div>
           <div id="dashVendedoresChart"></div>
@@ -557,16 +561,12 @@ function toast(msg, tipo='', duracion=3500){
           <div class="dash-card-title"><h2>Top productos</h2><span class="dash-pill">Cantidad</span></div>
           <div id="dashProductosChart"></div>
         </div>
-        <div class="card">
-          <div class="dash-card-title"><h2>Comisiones</h2><span class="dash-pill">Pagadas vs pendientes</span></div>
-          <div id="dashComisionesChart"></div>
-        </div>
       </div>
 
       <div class="two">
         <div class="card">
-          <div class="dash-card-title"><h2>Última actividad</h2><span class="dash-pill">Reciente</span></div>
-          <div id="dashActividad"></div>
+          <div class="dash-card-title"><h2>Comisiones</h2><span class="dash-pill">Pagadas vs pendientes</span></div>
+          <div id="dashComisionesChart"></div>
         </div>
         <div class="card">
           <div class="dash-card-title"><h2>Pedidos por estado</h2><span class="dash-pill">Barras</span></div>
@@ -2095,6 +2095,69 @@ function edDashVentasSerie(pedidosPeriodo){
   });
   return Object.keys(porMes).sort().slice(-12).map(k=>({label:k.replace(/^(\d{4})-/,"$1/"), value:porMes[k], valueLabel:money(porMes[k])}));
 }
+
+function edDashVentasAgrupadas(pedidosPeriodo){
+  const modo = modoDashboard();
+  const grupos = {};
+  pedidosPeriodo.forEach((p,idx)=>{
+    const total = Number(p.total||0);
+    if(total <= 0) return;
+    const ymd = fechaYMD(p.fecha);
+    let key = ymd || `sin-fecha-${idx}`;
+    let label = ymd ? new Date(ymd+"T00:00:00").toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit"}) : "Sin fecha";
+    let orden = ymd || "9999-99-99";
+
+    if(modo === "anual" || modo === "general"){
+      const mes = mesDeFecha(p.fecha) || "Sin fecha";
+      key = mes;
+      if(mes && mes !== "Sin fecha"){
+        const [anio, mesN] = mes.split("-");
+        label = `${mesN}/${anio}`;
+        orden = mes;
+      }else{
+        label = "Sin fecha";
+        orden = "9999-99";
+      }
+    }
+
+    if(modo === "dia"){
+      const d = new Date(p.fecha);
+      const hora = isNaN(d) ? "Sin hora" : String(d.getHours()).padStart(2,"0") + ":00";
+      key = hora;
+      label = hora;
+      orden = hora;
+    }
+
+    if(!grupos[key]) grupos[key] = {key,label,orden,total:0,pedidos:0};
+    grupos[key].total += total;
+    grupos[key].pedidos += 1;
+  });
+
+  return Object.values(grupos).sort((a,b)=>String(a.orden).localeCompare(String(b.orden)));
+}
+
+function edDashVentasConMovimiento(pedidosPeriodo){
+  const grupos = edDashVentasAgrupadas(pedidosPeriodo);
+  if(!grupos.length) return edDashEmpty("No hubo ventas cargadas en este período.");
+  const visibles = modoDashboard() === "general" ? grupos.slice(-12) : grupos;
+  return edDashBars(visibles.map(x=>({
+    label:x.label,
+    value:x.total,
+    valueLabel:money(x.total),
+    sub:x.pedidos === 1 ? "1 pedido cargado" : `${x.pedidos} pedidos cargados`,
+    title:`${x.label}: ${money(x.total)}`
+  })));
+}
+
+function edDashVentasDetalleTexto(pedidosPeriodo){
+  const grupos = edDashVentasAgrupadas(pedidosPeriodo);
+  if(!grupos.length) return "Sin ventas";
+  const modo = modoDashboard();
+  if(modo === "dia") return grupos.length === 1 ? "1 franja con ventas" : `${grupos.length} franjas con ventas`;
+  if(modo === "anual" || modo === "general") return grupos.length === 1 ? "1 mes con ventas" : `${grupos.length} meses con ventas`;
+  return grupos.length === 1 ? "1 día con ventas" : `${grupos.length} días con ventas`;
+}
+
 function edDashEstadoItems(){
   const estados = [
     {estado:"Pendiente", label:"Pendientes", colorClass:"blue"},
@@ -2211,9 +2274,8 @@ function renderDashboard(){
   setText("mComisionesSub", `${money(comPagadaPeriodo)} pagadas · ${money(comPendiente)} pendientes totales.`);
   setText("mProductosVendidosSub", `${productos.length} referencias en catálogo.`);
 
-  const ventasSerie = edDashVentasSerie(pedidosPeriodo);
-  setHTML("dashVentasPorDia", edDashTrend(ventasSerie) + `<div class="dash-trend-caption">Total del período: <b>${money(ventasPeriodo)}</b></div>`);
-  setText("dashVentasPorDiaDetalle", pedidosPeriodo.length ? `${pedidosPeriodo.length} pedidos` : "Sin pedidos");
+  setHTML("dashVentasPorDia", edDashVentasConMovimiento(pedidosPeriodo) + `<div class="dash-trend-caption">Total del período: <b>${money(ventasPeriodo)}</b></div>`);
+  setText("dashVentasPorDiaDetalle", edDashVentasDetalleTexto(pedidosPeriodo));
 
   setHTML("dashEstadosResumen", edDashEstadoResumen());
   setHTML("dashEstadosChart", edDashBars(edDashEstadoItems(), "dash-estados"));
