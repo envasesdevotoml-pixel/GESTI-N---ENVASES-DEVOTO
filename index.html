@@ -424,6 +424,43 @@
       .dash-commission-box{grid-template-columns:1fr}
     }
 
+
+    /* ===== Alertas de cobranza ===== */
+    .dash-kpi-grid{grid-template-columns:repeat(6,minmax(145px,1fr))}
+    .dash-kpi.cobranza{color:#d97706;background:linear-gradient(135deg,#fff,#fff7ed)}
+    .cobranza-panel{border-color:#fed7aa;background:linear-gradient(135deg,#fff,#fffbf5)}
+    .cobranza-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+    .cobranza-head h2{margin:0 0 5px}
+    .cobranza-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;margin-bottom:14px}
+    .cobranza-mini{border:1px solid var(--line);border-radius:14px;padding:14px;background:#fff}
+    .cobranza-mini b{display:block;font-size:22px;margin-top:6px;color:#0f172a}
+    .cobranza-mini.red{border-color:#fecaca;background:#fff5f5}
+    .cobranza-mini.yellow{border-color:#fde68a;background:#fffbeb}
+    .cobranza-mini.green{border-color:#bbf7d0;background:#f0fdf4}
+    .cobranza-layout{display:grid;grid-template-columns:360px 1fr;gap:14px;align-items:start}
+    .cobranza-semaforo{display:grid;gap:10px}
+    .cobranza-semaforo-item{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}
+    .cobranza-dot{width:22px;height:22px;border-radius:50%;box-shadow:0 0 0 4px rgba(15,23,42,.04)}
+    .cobranza-dot.green{background:#22a447}
+    .cobranza-dot.yellow{background:#f0a800}
+    .cobranza-dot.red{background:#dc3b3b}
+    .cobranza-semaforo-title{font-weight:900;color:#0f172a}
+    .cobranza-semaforo-sub{font-size:12px;color:var(--muted);font-weight:700;margin-top:2px}
+    .cobranza-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px;background:#fff}
+    .cobranza-table{width:100%;border-collapse:collapse;box-shadow:none;border-radius:0}
+    .cobranza-table th,.cobranza-table td{padding:10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle;white-space:nowrap}
+    .cobranza-table th{background:#fff7ed;color:#7c2d12}
+    .cobranza-row-red td{background:#fff5f5}
+    .cobranza-row-yellow td{background:#fffbeb}
+    .cobranza-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 9px;font-weight:900;font-size:12px;border:1px solid currentColor}
+    .cobranza-badge.green{background:#f0fdf4;color:#15803d}
+    .cobranza-badge.yellow{background:#fffbeb;color:#a16207}
+    .cobranza-badge.red{background:#fff5f5;color:#b91c1c}
+    .btn.tiny{padding:7px 10px;font-size:12px;border-radius:8px}
+    @media(max-width:1200px){.dash-kpi-grid{grid-template-columns:repeat(2,minmax(180px,1fr))}.cobranza-layout{grid-template-columns:1fr}.cobranza-summary-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:700px){.cobranza-summary-grid{grid-template-columns:1fr}.cobranza-table th,.cobranza-table td{font-size:12px;padding:8px}}
+
+
 </style>
 </head>
 <body>
@@ -529,7 +566,14 @@ function toast(msg, tipo='', duracion=3500){
           <div class="metric-value" id="mProductosVendidosPeriodo">0</div>
           <div class="dash-note" id="mProductosVendidosSub">Unidades cargadas en pedidos.</div>
         </div>
+        <div class="card dash-kpi cobranza">
+          <div class="metric-title">Pendiente de cobro</div>
+          <div class="metric-value" id="mPendienteCobro">$0</div>
+          <div class="dash-note" id="mPendienteCobroSub">Pedidos entregados sin cobrar.</div>
+        </div>
       </div>
+
+      <div class="card cobranza-panel" id="dashCobranzaPanel"></div>
 
       <div class="dash-chart-grid">
         <div class="card">
@@ -1220,6 +1264,7 @@ async function cargarDesdeSupabase(){
         return {
         id:x.id,
         fecha:x.fecha,
+        fecha_entregado:campoSupabaseOLocal(x,"fecha_entregado", lp.fecha_entregado || ""),
         cliente_id:x.cliente_id,
         cliente:campoSupabaseOLocal(x,"cliente_nombre", lp.cliente || ""),
         telefono:campoSupabaseOLocal(x,"cliente_telefono", lp.telefono || ""),
@@ -1538,6 +1583,10 @@ async function guardarPedido(){
   const baseDiferidaCabecera = referidoSeleccionado ? totales.base_comision_diferida : 0;
   const importeDiferidaCabecera = referidoSeleccionado ? (baseDiferidaCabecera * pctDiferidaSeleccionada / 100) : 0;
   const pedidoAnterior = pedidoEditandoId ? JSON.parse(JSON.stringify(pedidos.find(p=>String(p.id)===String(pedidoEditandoId)) || null)) : null;
+  const estadoFormularioPedido = document.getElementById("pEstado").value;
+  const fechaEntregadoGuardado = estadoFormularioPedido === "Entregado"
+    ? ((pedidoAnterior && pedidoAnterior.estado === "Entregado" && pedidoAnterior.fecha_entregado) ? pedidoAnterior.fecha_entregado : new Date().toISOString())
+    : (pedidoAnterior?.fecha_entregado || "");
   let pedidoGuardado = null;
 
   if(sb){
@@ -1547,7 +1596,8 @@ async function guardarPedido(){
       cliente_telefono: clienteTelefono,
       vendedor_nombre: vendedor.nombre,
       vendedor_id: vendedor.id,
-      estado: document.getElementById("pEstado").value,
+      estado: estadoFormularioPedido,
+      fecha_entregado: fechaEntregadoGuardado || null,
       observaciones: document.getElementById("pObservaciones").value.trim(),
       total: total,
       subtotal: totales.subtotal,
@@ -1581,6 +1631,7 @@ async function guardarPedido(){
     // pero al guardar en Supabase quedaban vacíos referido_nombre / base / importe.
     delete cabeceraBasica.usuario_nombre;
     delete cabeceraBasica.usuario_rol;
+    delete cabeceraBasica.fecha_entregado;
 
     if(pedidoEditandoId){
       let resPedido = await sb
@@ -1665,7 +1716,8 @@ async function guardarPedido(){
     telefono:clienteTelefono,
     vendedor:vendedor?vendedor.nombre:'',
     vendedor_id:vendedor?vendedor.id:null,
-    estado:document.getElementById("pEstado").value,
+    estado:estadoFormularioPedido,
+    fecha_entregado: fechaEntregadoGuardado,
     observaciones:document.getElementById("pObservaciones").value.trim(),
     lineas:[...pedidoActual],
     subtotal:totales.subtotal,
@@ -2226,6 +2278,122 @@ function edDashActividades(comisionesDetalle){
     </div>`;
   }).join("") + `</div>`;
 }
+
+function edCobranzaParseDate(v){
+  if(!v) return null;
+  const d = new Date(v);
+  return isNaN(d) ? null : d;
+}
+function edCobranzaDiasDesde(fecha){
+  const d = edCobranzaParseDate(fecha);
+  if(!d) return 0;
+  const hoy = new Date();
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const b = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()).getTime();
+  return Math.max(0, Math.floor((b - a) / 86400000));
+}
+function edCobranzaFechaEntrega(p){
+  if(p?.fecha_entregado) return {fecha:p.fecha_entregado, origen:"Fecha de entrega"};
+  const hist = historialPedidos && historialPedidos[String(p?.id)] ? historialPedidos[String(p.id)] : [];
+  const mov = (hist || [])
+    .filter(h=>String(h.accion||"").toLowerCase().includes("estado") && String(h.detalle||"").includes("→ Entregado"))
+    .sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0))[0];
+  if(mov?.fecha) return {fecha:mov.fecha, origen:"Historial"};
+  return {fecha:p?.fecha || new Date().toISOString(), origen:"Fecha del pedido"};
+}
+function edCobranzaSemaforo(dias){
+  if(Number(dias||0) > 30) return {nivel:"red", texto:"Reclamar", detalle:"Más de 30 días"};
+  if(Number(dias||0) >= 16) return {nivel:"yellow", texto:"Atención", detalle:"16 a 30 días"};
+  return {nivel:"green", texto:"En plazo", detalle:"0 a 15 días"};
+}
+function edCobranzaData(){
+  return (pedidos || [])
+    .filter(p=>String(p.estado||"") === "Entregado")
+    .map(p=>{
+      const fe = edCobranzaFechaEntrega(p);
+      const dias = edCobranzaDiasDesde(fe.fecha);
+      const sem = edCobranzaSemaforo(dias);
+      return {
+        pedido:p,
+        id:p.id,
+        cliente:clienteNombrePedido(p),
+        vendedor:p.vendedor || getVendedorDePedido(p)?.nombre || "Sin vendedor",
+        total:Number(p.total||0),
+        fecha:fe.fecha,
+        origen:fe.origen,
+        dias,
+        semaforo:sem
+      };
+    })
+    .sort((a,b)=>b.dias-a.dias || b.total-a.total);
+}
+function edCobranzaResumen(items){
+  const total = items.reduce((a,x)=>a+Number(x.total||0),0);
+  const vencidos = items.filter(x=>x.dias>30);
+  const atencion = items.filter(x=>x.dias>=16 && x.dias<=30);
+  const enPlazo = items.filter(x=>x.dias<=15);
+  return {total, vencidos, atencion, enPlazo};
+}
+function edCobranzaSemaforoBox(titulo, sub, nivel, items){
+  const total = (items||[]).reduce((a,x)=>a+Number(x.total||0),0);
+  return `<div class="cobranza-semaforo-item">
+    <div class="cobranza-dot ${nivel}"></div>
+    <div>
+      <div class="cobranza-semaforo-title">${edDashEscape(titulo)}</div>
+      <div class="cobranza-semaforo-sub">${edDashEscape(sub)} · ${items.length} pedido${items.length===1?"":"s"}</div>
+    </div>
+    <b>${money(total)}</b>
+  </div>`;
+}
+function edDashCobranzaPanel(items){
+  const r = edCobranzaResumen(items);
+  const totalPedidos = items.length;
+  const peor = r.vencidos.length ? "red" : (r.atencion.length ? "yellow" : "green");
+  const estadoTxt = r.vencidos.length ? `${r.vencidos.length} vencido${r.vencidos.length===1?"":"s"} para reclamar` : (r.atencion.length ? `${r.atencion.length} en atención` : "Sin vencidos");
+  const filas = items.slice(0,8).map(x=>{
+    const fecha = x.fecha ? new Date(x.fecha).toLocaleDateString("es-AR") : "-";
+    const diasTxt = x.dias === 1 ? "1 día" : `${x.dias} días`;
+    const rowCls = x.semaforo.nivel === "red" ? "cobranza-row-red" : (x.semaforo.nivel === "yellow" ? "cobranza-row-yellow" : "");
+    return `<tr class="${rowCls}">
+      <td><b>#${edDashEscape(x.id)}</b></td>
+      <td>${edDashEscape(x.cliente)}</td>
+      <td>${edDashEscape(x.vendedor)}</td>
+      <td>${edDashEscape(fecha)}<div class="dash-activity-detail">${edDashEscape(x.origen)}</div></td>
+      <td><b>${edDashEscape(diasTxt)}</b></td>
+      <td>${money(x.total)}</td>
+      <td><span class="cobranza-badge ${x.semaforo.nivel}">${x.semaforo.nivel==="red"?"🔴":(x.semaforo.nivel==="yellow"?"🟡":"🟢")} ${edDashEscape(x.semaforo.texto)}</span></td>
+      <td><button class="btn tiny success" onclick="confirmarMarcarCobrado(${JSON.stringify(x.id)})">Marcar cobrado</button></td>
+    </tr>`;
+  }).join("");
+  return `<div class="cobranza-head">
+    <div>
+      <h2>💰 Gestión de cobranzas</h2>
+      <div class="small">Pedidos entregados que todavía no figuran como cobrados. El semáforo se calcula desde la fecha de entrega.</div>
+    </div>
+    <span class="cobranza-badge ${peor}">${peor==="red"?"🔴":(peor==="yellow"?"🟡":"🟢")} ${edDashEscape(estadoTxt)}</span>
+  </div>
+  <div class="cobranza-summary-grid">
+    <div class="cobranza-mini"><span class="metric-title">Dinero en la calle</span><b>${money(r.total)}</b></div>
+    <div class="cobranza-mini red"><span class="metric-title">Vencido +30 días</span><b>${money(r.vencidos.reduce((a,x)=>a+x.total,0))}</b></div>
+    <div class="cobranza-mini yellow"><span class="metric-title">Atención 16-30 días</span><b>${money(r.atencion.reduce((a,x)=>a+x.total,0))}</b></div>
+    <div class="cobranza-mini green"><span class="metric-title">En plazo 0-15 días</span><b>${money(r.enPlazo.reduce((a,x)=>a+x.total,0))}</b></div>
+  </div>
+  ${totalPedidos ? `<div class="cobranza-layout">
+    <div class="cobranza-semaforo">
+      ${edCobranzaSemaforoBox("En plazo", "0 a 15 días", "green", r.enPlazo)}
+      ${edCobranzaSemaforoBox("Atención", "16 a 30 días", "yellow", r.atencion)}
+      ${edCobranzaSemaforoBox("Reclamar", "Más de 30 días", "red", r.vencidos)}
+    </div>
+    <div class="cobranza-table-wrap">
+      <table class="cobranza-table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Vendedor</th><th>Entregado</th><th>Hace</th><th>Importe</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${filas}</tbody></table>
+    </div>
+  </div>` : edDashEmpty("No hay pedidos entregados pendientes de cobro.")}`;
+}
+function confirmarMarcarCobrado(id){
+  if(!confirm(`Marcar el pedido #${id} como Cobrado?`)) return;
+  actualizarEstadoPedido(id, "Cobrado");
+}
+
 function renderDashboard(){
   actualizarControlesDashboard();
 
@@ -2263,16 +2431,21 @@ function renderDashboard(){
     .reduce((a,c)=>a+Number(c.saldo||0),0);
   const comPagadaPeriodo = comisionesPeriodo.reduce((a,c)=>a+Number(c.pagado||0),0);
   const comGeneradaPeriodo = comisionesPeriodo.reduce((a,c)=>a+Number(c.importe||0),0);
+  const cobranzaItems = edCobranzaData();
+  const cobranzaResumen = edCobranzaResumen(cobranzaItems);
 
   setMetric("mVentasMes", money(ventasPeriodo));
   setMetric("mPedidosMes", pedidosPeriodo.length);
   setMetric("mTicketMes", money(ticket));
   setMetric("mComisionesMes", money(comPendPeriodo));
   setMetric("mProductosVendidosPeriodo", productosVendidos);
+  setMetric("mPendienteCobro", money(cobranzaResumen.total));
   setText("mVentasSub", pedidosPeriodo.length ? `${pedidosPeriodo.length} pedidos cargados.` : "Sin pedidos en este período.");
   setText("mPedidosSub", pedidosPeriodo.length === 1 ? "1 pedido registrado." : `${pedidosPeriodo.length} pedidos registrados.`);
   setText("mComisionesSub", `${money(comPagadaPeriodo)} pagadas · ${money(comPendiente)} pendientes totales.`);
   setText("mProductosVendidosSub", `${productos.length} referencias en catálogo.`);
+  setText("mPendienteCobroSub", `${cobranzaItems.length} pedido${cobranzaItems.length===1?"":"s"} entregado${cobranzaItems.length===1?"":"s"} sin cobrar · ${cobranzaResumen.vencidos.length} vencido${cobranzaResumen.vencidos.length===1?"":"s"} +30 días.`);
+  setHTML("dashCobranzaPanel", edDashCobranzaPanel(cobranzaItems));
 
   setHTML("dashVentasPorDia", edDashVentasConMovimiento(pedidosPeriodo) + `<div class="dash-trend-caption">Total del período: <b>${money(ventasPeriodo)}</b></div>`);
   setText("dashVentasPorDiaDetalle", edDashVentasDetalleTexto(pedidosPeriodo));
@@ -2492,19 +2665,31 @@ async function eliminarPedidoConPassword(id){
 async function actualizarEstadoPedido(id, estado){
   const pedido = pedidos.find(p=>p.id==id);
   const estadoAnterior = pedido ? pedido.estado : "";
-  if(pedido) pedido.estado = estado;
+  const cambioAEntregado = String(estadoAnterior)!=="Entregado" && String(estado)==="Entregado";
+  const fechaEntregado = cambioAEntregado ? new Date().toISOString() : (pedido?.fecha_entregado || "");
+
+  if(pedido){
+    pedido.estado = estado;
+    if(cambioAEntregado) pedido.fecha_entregado = fechaEntregado;
+  }
   if(String(estadoAnterior)!==String(estado)) registrarHistorialPedido(id, "Cambio de estado", `${estadoAnterior || "-"} → ${estado}`);
+  saveLocal();
 
   if(sb){
-    const {error} = await sb.from("pedidos").update({estado}).eq("id", id);
-    if(error) return toast("Error actualizando estado: " + error.message);
+    let payload = {estado};
+    if(cambioAEntregado) payload.fecha_entregado = fechaEntregado;
+    let res = await sb.from("pedidos").update(payload).eq("id", id);
+    if(res.error && payload.fecha_entregado){
+      // Compatibilidad: si Supabase todavía no tiene fecha_entregado,
+      // actualiza el estado igual y conserva la fecha localmente.
+      res = await sb.from("pedidos").update({estado}).eq("id", id);
+    }
+    if(res.error) return toast("Error actualizando estado: " + res.error.message, "error");
     await cargarDesdeSupabase();
   } else {
-    saveLocal();
     renderAll();
   }
 }
-
 async function obtenerLineasPedido(id){
   if(!sb){
     const pedido = pedidos.find(p=>p.id==id);
