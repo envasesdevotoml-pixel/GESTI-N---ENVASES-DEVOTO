@@ -4607,9 +4607,15 @@ function documentoRemitoGenerico(p, lineas, completo=true){
     return { l, cantidad, precioLista, descuentoLinea, precioFinal, subtotalFinalLinea };
   });
 
-  const subtotalFinal = lineasCalculadas.reduce((acc,x)=>acc + Number(x.subtotalFinalLinea||0),0) || subtotalPedido(p);
-  const ajuste = Number(p?.ajuste_importe||0);
-  const totalFinal = Math.max(0, subtotalFinal + ajuste);
+  const subtotalLineas = lineasCalculadas.reduce((acc,x)=>acc + Number(x.subtotalFinalLinea||0),0);
+  const subtotalGuardado = Number(p?.subtotal || 0);
+  const subtotalFinal = subtotalGuardado || subtotalLineas || subtotalPedido(p);
+  const totalGuardado = Number(p?.total || 0);
+  let ajuste = Number(p?.ajuste_importe || 0);
+  if(!ajuste && totalGuardado && subtotalFinal){
+    ajuste = totalGuardado - subtotalFinal;
+  }
+  const totalFinal = totalGuardado || Math.max(0, subtotalFinal + ajuste);
   const tieneDescuento = lineasCalculadas.some(x=>Number(x.descuentoLinea||0) > 0.01);
 
   const rows = lineasCalculadas.map(x=>{
