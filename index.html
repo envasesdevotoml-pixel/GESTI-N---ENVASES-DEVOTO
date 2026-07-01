@@ -2645,9 +2645,11 @@ async function editarPedido(id){
   const ent2 = document.getElementById("pMetodoEntrega"); if(ent2) ent2.value = pedido.metodo_entrega || "";
   const pag2 = document.getElementById("pMetodoPago"); if(pag2) pag2.value = pedido.metodo_pago || "";
   const desc2 = document.getElementById("pDescuento"); if(desc2) desc2.value = Number(pedido.descuento_porcentaje || 0);
-  const aj2 = document.getElementById("pAjuste"); if(aj2) aj2.value = Number(pedido.ajuste_porcentaje || 0);
+  const ajustePctPedido = ajustePorcentajePedido(pedido);
+  const aj2 = document.getElementById("pAjuste"); if(aj2) aj2.value = ajustePctPedido ? Number(ajustePctPedido.toFixed(4)) : 0;
   const descPreset2 = document.getElementById("pDescuentoPreset"); if(descPreset2) descPreset2.value = ["0","5","10","15","20"].includes(String(pedido.descuento_porcentaje || 0)) ? String(pedido.descuento_porcentaje || 0) : "manual";
-  const ajPreset2 = document.getElementById("pAjustePreset"); if(ajPreset2) ajPreset2.value = ["0","4","10.5","21"].includes(String(pedido.ajuste_porcentaje || 0)) ? String(pedido.ajuste_porcentaje || 0) : "manual";
+  const ajustePresetValue = ajustePctPedido ? Number(ajustePctPedido.toFixed(4)) : 0;
+  const ajPreset2 = document.getElementById("pAjustePreset"); if(ajPreset2) ajPreset2.value = ["0","4","10.5","21"].includes(String(ajustePresetValue)) ? String(ajustePresetValue) : "manual";
   const vendedorIndex2 = vendedores.findIndex(v=>v.id==pedido.vendedor_id || v.nombre==pedido.vendedor);
   document.getElementById("pVendedor").value = vendedorIndex2 >= 0 ? vendedorIndex2 : "";
   const referidoIndex2 = vendedores.findIndex(v=>v.id==pedido.referido_id || v.nombre==pedido.referido_nombre);
@@ -2679,7 +2681,7 @@ function renderPedidoTable(data){
     selectEstadoHTML(p.id, p.estado),
     money(subtotalPedido(p)),
     (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+"%" : "-"),
-    (Number(p.ajuste_porcentaje||0) ? Number(p.ajuste_porcentaje||0)+"%" : "-"),
+    (ajusteImportePedido(p) ? money(ajusteImportePedido(p)) : "-"),
     money(p.total),
     `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button> <button class="btn secondary" onclick='abrirRemito(${JSON.stringify(p.id)})'>Remito</button> ${currentUser?.rol === "admin" ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ""}`
   ]));
@@ -3624,6 +3626,25 @@ function subtotalPedido(p){
   const ajustePct = Number(p?.ajuste_porcentaje||0);
   if(total && ajustePct) return Math.round(total / (1 + ajustePct / 100));
   return total;
+}
+function ajusteImportePedido(p){
+  const guardado = Number(p?.ajuste_importe || 0);
+  if(Math.abs(guardado) > 0.01) return guardado;
+
+  const subtotal = Number(p?.subtotal || 0) || subtotalPedido(p);
+  const total = Number(p?.total || 0);
+  const calculado = total && subtotal ? (total - subtotal) : 0;
+
+  return calculado > 0.01 ? calculado : 0;
+}
+function ajustePorcentajePedido(p){
+  const guardado = Number(p?.ajuste_porcentaje || 0);
+  if(Math.abs(guardado) > 0.0001) return guardado;
+
+  const subtotal = Number(p?.subtotal || 0) || subtotalPedido(p);
+  const importe = ajusteImportePedido(p);
+
+  return subtotal && importe ? (importe / subtotal * 100) : 0;
 }
 function baseComisionPedido(p){
   const sub = subtotalPedido(p);
@@ -4610,11 +4631,8 @@ function documentoRemitoGenerico(p, lineas, completo=true){
   const subtotalLineas = lineasCalculadas.reduce((acc,x)=>acc + Number(x.subtotalFinalLinea||0),0);
   const subtotalGuardado = Number(p?.subtotal || 0);
   const subtotalFinal = subtotalGuardado || subtotalLineas || subtotalPedido(p);
+  const ajuste = ajusteImportePedido(p);
   const totalGuardado = Number(p?.total || 0);
-  let ajuste = Number(p?.ajuste_importe || 0);
-  if(!ajuste && totalGuardado && subtotalFinal){
-    ajuste = totalGuardado - subtotalFinal;
-  }
   const totalFinal = totalGuardado || Math.max(0, subtotalFinal + ajuste);
   const tieneDescuento = lineasCalculadas.some(x=>Number(x.descuentoLinea||0) > 0.01);
 
@@ -4765,7 +4783,7 @@ function renderPedidoTable(data){
     selectEstadoHTML(p.id, p.estado),
     money(subtotalPedido(p)),
     (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+'%' : '-'),
-    (Number(p.ajuste_porcentaje||0) ? Number(p.ajuste_porcentaje||0)+'%' : '-'),
+    (ajusteImportePedido(p) ? money(ajusteImportePedido(p)) : '-'),
     money(p.total),
     `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='abrirRemito(${JSON.stringify(p.id)})'>Remito completo</button> <button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button> ${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}`
   ]));
