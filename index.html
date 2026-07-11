@@ -478,6 +478,41 @@
     @media(max-width:600px){.cliente-ficha-grid{grid-template-columns:1fr}}
 
 
+    /* ===== Cuenta corriente de clientes ===== */
+    .cc-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(170px,1fr));gap:14px;margin-bottom:16px}
+    .cc-summary-card{position:relative;overflow:hidden}
+    .cc-summary-card .metric-value{font-size:25px}
+    .cc-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+    .cc-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px;background:#fff}
+    .cc-table-wrap table{box-shadow:none;border-radius:0;min-width:900px}
+    .cc-balance{font-size:22px;font-weight:900}
+    .cc-balance.debt{color:#b91c1c}
+    .cc-balance.credit{color:#15803d}
+    .cc-balance.zero{color:#334155}
+    .cc-client-name{font-weight:900;color:#0f172a}
+    .cc-detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+    .cc-payment-form{display:grid;grid-template-columns:170px 180px 190px minmax(220px,1fr) auto;gap:10px;align-items:end}
+    .cc-payment-form label{display:block;font-size:12px;font-weight:900;color:#475569;margin-bottom:6px}
+    .cc-payment-form input,.cc-payment-form select{width:100%;height:45px}
+    .cc-payment-form .btn{height:45px;white-space:nowrap}
+    .cc-movement-order td{background:#f8fbff}
+    .cc-movement-payment td{background:#f4fbf6}
+    .cc-concept{font-weight:900;color:#0f172a}
+    .cc-sub{font-size:12px;color:var(--muted);font-weight:700;margin-top:3px}
+    .cc-debe{color:#b91c1c;font-weight:900;white-space:nowrap}
+    .cc-haber{color:#15803d;font-weight:900;white-space:nowrap}
+    .cc-running{font-weight:900;white-space:nowrap}
+    .cc-fin-badge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:900;border:1px solid currentColor;white-space:nowrap}
+    .cc-fin-badge.pendiente{background:#fff5f5;color:#b91c1c}
+    .cc-fin-badge.parcial{background:#fffbeb;color:#a16207}
+    .cc-fin-badge.cobrado{background:#f0fdf4;color:#15803d}
+    .cc-fin-badge.no-aplica{background:#f8fafc;color:#64748b}
+    .cc-amount-detail{display:grid;gap:2px;font-size:12px;min-width:130px}
+    .cc-amount-detail b{font-size:13px}
+    @media(max-width:1100px){.cc-summary-grid{grid-template-columns:1fr 1fr}.cc-payment-form{grid-template-columns:1fr 1fr}}
+    @media(max-width:700px){.cc-summary-grid{grid-template-columns:1fr}.cc-payment-form{grid-template-columns:1fr}.cc-detail-head{align-items:stretch}}
+
+
 </style>
 </head>
 <body>
@@ -509,6 +544,7 @@ function toast(msg, tipo='', duracion=3500){
       <button class="active" onclick="go('dashboard',this)">📊 Dashboard</button>
       <button onclick="go('nuevoPedido',this)">🛒 Cargar pedido</button>
       <button onclick="go('pedidos',this)">📋 Pedidos</button>
+      <button onclick="go('cuentasCorrientes',this)">💳 Cuenta Corriente</button>
       <button onclick="go('preparacion',this)">📦 Preparación</button>
       <button onclick="go('listaCorte',this)">✂️ Lista de corte</button>
       <button onclick="go('productos',this)">🏷️ Productos</button>
@@ -586,7 +622,12 @@ function toast(msg, tipo='', duracion=3500){
         <div class="card dash-kpi cobranza">
           <div class="metric-title">Pendiente de cobro</div>
           <div class="metric-value" id="mPendienteCobro">$0</div>
-          <div class="dash-note" id="mPendienteCobroSub">Pedidos entregados sin cobrar.</div>
+          <div class="dash-note" id="mPendienteCobroSub">Saldo real de cuentas corrientes.</div>
+        </div>
+        <div class="card dash-kpi blue">
+          <div class="metric-title">Clientes con deuda</div>
+          <div class="metric-value" id="mClientesDeuda">0</div>
+          <div class="dash-note" id="mClientesDeudaSub">Clientes con saldo pendiente.</div>
         </div>
       </div>
 
@@ -776,6 +817,72 @@ function toast(msg, tipo='', duracion=3500){
       </div>
       <div id="resumenClientePedidos"></div>
       <div id="tablaPedidos"></div>
+    </section>
+
+    <section id="cuentasCorrientes" class="section">
+      <h1>Cuenta Corriente</h1>
+
+      <div id="ccListaView">
+        <div class="cc-summary-grid">
+          <div class="card cc-summary-card"><div class="metric-title">Total a cobrar</div><div class="metric-value" id="ccTotalCobrar">$0</div><div class="dash-note">Suma de saldos pendientes.</div></div>
+          <div class="card cc-summary-card"><div class="metric-title">Clientes con deuda</div><div class="metric-value" id="ccClientesDeuda">0</div><div class="dash-note">Clientes con saldo mayor a $0.</div></div>
+          <div class="card cc-summary-card"><div class="metric-title">Saldos a favor</div><div class="metric-value" id="ccSaldosFavor">$0</div><div class="dash-note">Crédito disponible de clientes.</div></div>
+          <div class="card cc-summary-card"><div class="metric-title">Pagos registrados</div><div class="metric-value" id="ccPagosRegistrados">$0</div><div class="dash-note">Total histórico cargado en el sistema.</div></div>
+        </div>
+        <div class="card">
+          <div class="cc-toolbar">
+            <input id="buscarCuentaCorriente" placeholder="Buscar cliente, vendedor o saldo..." oninput="renderCuentasCorrientes()" style="min-width:280px;flex:1">
+            <button class="btn secondary" onclick="renderCuentasCorrientes()">Actualizar</button>
+          </div>
+          <div id="tablaCuentasCorrientes"></div>
+        </div>
+      </div>
+
+      <div id="ccDetalleView" style="display:none">
+        <div class="card">
+          <div class="cc-detail-head">
+            <div>
+              <button class="btn secondary" onclick="volverListaCuentas()">← Volver a clientes</button>
+              <h2 id="ccDetalleNombre" style="margin-top:14px;margin-bottom:4px">Cuenta corriente</h2>
+              <div class="small" id="ccDetalleMeta"></div>
+            </div>
+            <div style="text-align:right">
+              <div class="metric-title">Saldo actual</div>
+              <div class="cc-balance zero" id="ccDetalleSaldo">$0</div>
+              <div class="small" id="ccDetalleSaldoTexto">Sin deuda</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cc-summary-grid">
+          <div class="card"><div class="metric-title">Pedidos en cuenta</div><div class="metric-value" id="ccDetallePedidos">0</div></div>
+          <div class="card"><div class="metric-title">Total de pedidos</div><div class="metric-value" id="ccDetalleDebe">$0</div></div>
+          <div class="card"><div class="metric-title">Pagos registrados</div><div class="metric-value" id="ccDetalleHaber">$0</div></div>
+          <div class="card"><div class="metric-title">Último pago</div><div class="metric-value" id="ccDetalleUltimoPago" style="font-size:21px">-</div></div>
+        </div>
+
+        <div class="card">
+          <h2>Registrar pago</h2>
+          <div class="cc-payment-form">
+            <div><label>Fecha</label><input id="ccPagoFecha" type="date"></div>
+            <div><label>Importe</label><input id="ccPagoImporte" type="number" min="0.01" step="0.01" placeholder="$ 0"></div>
+            <div><label>Forma de pago</label><select id="ccPagoMetodo"><option value="">Elegir</option><option>Efectivo</option><option>Transferencia</option><option>Financiera</option><option>Mercado Pago</option><option>Otro</option></select></div>
+            <div><label>Observaciones</label><input id="ccPagoObservaciones" placeholder="Referencia, banco, comprobante, etc."></div>
+            <button class="btn success" onclick="registrarPagoCliente()">Registrar pago</button>
+          </div>
+          <div class="small" style="margin-top:10px">El pago se aplica automáticamente a los pedidos más antiguos del cliente. Si sobra dinero, queda como saldo a favor para próximos pedidos.</div>
+        </div>
+
+        <div class="card">
+          <div class="cc-toolbar">
+            <select id="ccFiltroTipo" onchange="renderCuentaCorrienteDetalle()"><option value="">Todos los movimientos</option><option value="pedido">Solo pedidos</option><option value="pago">Solo pagos</option></select>
+            <input id="ccFiltroDesde" type="date" onchange="renderCuentaCorrienteDetalle()" title="Desde">
+            <input id="ccFiltroHasta" type="date" onchange="renderCuentaCorrienteDetalle()" title="Hasta">
+            <button class="btn secondary" onclick="limpiarFiltrosCuentaCorriente()">Limpiar filtros</button>
+          </div>
+          <div id="ccMovimientos"></div>
+        </div>
+      </div>
     </section>
 
     <section id="preparacion" class="section">
@@ -985,6 +1092,11 @@ function toast(msg, tipo='', duracion=3500){
         <button class="btn secondary" style="margin-top:8px" onclick="toggleSqlAvanzado()">Mostrar SQL avanzado</button>
         <div id="sqlAvanzadoBox" class="warning" style="margin-top:14px;display:none">
           <b>SQL avanzado para Supabase:</b> usar solo si falta alguna columna.<br><br>
+          <code>alter table pedidos add column if not exists cobro_estado text default 'Pendiente';</code><br>
+          <code>alter table pedidos add column if not exists cobro_cubierto numeric default 0;</code><br>
+          <code>alter table pedidos add column if not exists fecha_cobrado timestamptz;</code><br>
+          <code>alter table pedidos add column if not exists fecha_entregado timestamptz;</code><br>
+          <code>create table if not exists pagos_clientes (id bigint generated by default as identity primary key, cliente_id bigint not null, fecha timestamptz not null default now(), importe numeric not null default 0, metodo_pago text, observaciones text, usuario_nombre text, created_at timestamptz not null default now());</code><br>
           <code>alter table pedidos add column if not exists comision_estado text default 'Pendiente';</code><br>
           <code>alter table pedidos add column if not exists comision_pagada_fecha timestamptz;</code><br>
           <code>alter table pedidos add column if not exists comision_pagado_importe numeric default 0;</code><br>
@@ -1239,6 +1351,8 @@ let productos = JSON.parse(localStorage.getItem("ed_productos") || "[]");
 let vendedores = JSON.parse(localStorage.getItem("ed_vendedores") || "[]");
 let clientes = JSON.parse(localStorage.getItem("ed_clientes") || "[]");
 let pedidos = JSON.parse(localStorage.getItem("ed_pedidos") || "[]");
+let pagosClientes = JSON.parse(localStorage.getItem("ed_pagos_clientes") || "[]");
+let cuentaClienteIdSeleccionado = null;
 let listaCorte = JSON.parse(localStorage.getItem("ed_lista_corte") || "[]");
 let comisionesPagas = JSON.parse(localStorage.getItem("ed_comisiones_pagas") || "{}");
 let comisionesPagosManual = JSON.parse(localStorage.getItem("ed_comisiones_pagos_manual") || "{}");
@@ -1249,10 +1363,12 @@ let sb = null;
 
 function money(n){return new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(Number(n||0))}
 function saveLocal(){
+  if(typeof ccInvalidarCache === "function") ccInvalidarCache();
   localStorage.setItem("ed_productos",JSON.stringify(productos));
   localStorage.setItem("ed_vendedores",JSON.stringify(vendedores));
   localStorage.setItem("ed_clientes",JSON.stringify(clientes));
   localStorage.setItem("ed_pedidos",JSON.stringify(pedidos));
+  localStorage.setItem("ed_pagos_clientes",JSON.stringify(pagosClientes));
   localStorage.setItem("ed_lista_corte",JSON.stringify(listaCorte));
   localStorage.setItem("ed_comisiones_pagas",JSON.stringify(comisionesPagas));
   localStorage.setItem("ed_comisiones_pagos_manual",JSON.stringify(comisionesPagosManual));
@@ -1296,6 +1412,20 @@ async function cargarDesdeSupabase(){
     const c = await sb.from("clientes").select("*").order("nombre");
     if(!c.error && c.data) clientes = c.data;
 
+    const pc = await sb.from("pagos_clientes").select("*").order("fecha",{ascending:false});
+    if(!pc.error && pc.data){
+      pagosClientes = pc.data.map(x=>({
+        id:x.id,
+        cliente_id:x.cliente_id,
+        fecha:x.fecha || x.created_at || new Date().toISOString(),
+        importe:Number(x.importe||0),
+        metodo_pago:x.metodo_pago || "",
+        observaciones:x.observaciones || "",
+        usuario_nombre:x.usuario_nombre || "",
+        created_at:x.created_at || x.fecha || new Date().toISOString()
+      }));
+    }
+
     try{
       const lc = await sb.from("lista_corte").select("*").order("created_at",{ascending:false});
       if(!lc.error && lc.data) listaCorte = lc.data.map(x=>({
@@ -1321,6 +1451,9 @@ async function cargarDesdeSupabase(){
         id:x.id,
         fecha:x.fecha,
         fecha_entregado:campoSupabaseOLocal(x,"fecha_entregado", lp.fecha_entregado || ""),
+        cobro_estado:campoSupabaseOLocal(x,"cobro_estado", lp.cobro_estado || "Pendiente"),
+        cobro_cubierto:Number(campoSupabaseOLocal(x,"cobro_cubierto", lp.cobro_cubierto || 0) || 0),
+        fecha_cobrado:Object.prototype.hasOwnProperty.call(x,"fecha_cobrado") ? (x.fecha_cobrado || "") : (lp.fecha_cobrado || ""),
         cliente_id:x.cliente_id,
         cliente:campoSupabaseOLocal(x,"cliente_nombre", lp.cliente || ""),
         telefono:campoSupabaseOLocal(x,"cliente_telefono", lp.telefono || ""),
@@ -1373,6 +1506,14 @@ async function cargarDesdeSupabase(){
       }
     }
 
+    // Mantiene sincronizada la imputación FIFO al abrir el sistema o al refrescar datos.
+    ccInvalidarCache();
+    const idsCuentasActivas = [...new Set([
+      ...(pedidos||[]).filter(pedidoParticipaCuenta).map(clienteIdPedido).filter(Boolean),
+      ...(pagosClientes||[]).map(x=>String(x.cliente_id||"")).filter(Boolean)
+    ])];
+    for(const cid of idsCuentasActivas) await recalcularCobranzaCliente(cid,true);
+
     saveLocal();
     renderAll();
   }catch(e){console.log(e)}
@@ -1402,6 +1543,305 @@ function table(headers,rows){
   return '<table><thead><tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+
     rows.map(r=>'<tr>'+r.map(c=>'<td>'+(c ?? '')+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
 }
+
+
+/* ===== Cuenta corriente / cobranza FIFO ===== */
+let ccCacheCuentas = new Map();
+function ccInvalidarCache(){ ccCacheCuentas.clear(); }
+function ccNorm(v){
+  return String(v ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+function ccYMD(v){
+  const d = v ? new Date(v) : null;
+  if(!d || isNaN(d)) return "";
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function ccFechaAR(v){
+  const d = v ? new Date(v) : null;
+  return (!d || isNaN(d)) ? "-" : d.toLocaleDateString("es-AR");
+}
+function ccFechaInputHoy(){
+  return ccYMD(new Date());
+}
+function clienteIdPedido(p){
+  if(p?.cliente_id !== undefined && p?.cliente_id !== null && String(p.cliente_id)!=="") return String(p.cliente_id);
+  const nombre = ccNorm(p?.cliente || p?.cliente_nombre || "");
+  const c = (clientes||[]).find(x=>ccNorm(x.nombre)===nombre);
+  return c ? String(c.id) : null;
+}
+function pedidoParticipaCuenta(p){
+  return ["Entregado","Cobrado"].includes(String(p?.estado||""));
+}
+function pedidoCobradoHistorico(p){
+  if(String(p?.estado||"") !== "Cobrado") return false;
+  const tieneFechaNueva = !!p?.fecha_cobrado;
+  const cubiertoNuevo = Number(p?.cobro_cubierto||0) > 0;
+  const estadoNuevo = String(p?.cobro_estado||"") === "Cobrado" && cubiertoNuevo;
+  return !tieneFechaNueva && !estadoNuevo;
+}
+function fechaMovimientoPedido(p){
+  return p?.fecha_entregado || p?.fecha || new Date().toISOString();
+}
+function pagosDeCliente(clienteId){
+  return (pagosClientes||[]).filter(x=>String(x.cliente_id)===String(clienteId));
+}
+function pedidosDeCuentaCliente(clienteId){
+  return (pedidos||[])
+    .filter(p=>pedidoParticipaCuenta(p) && String(clienteIdPedido(p))===String(clienteId))
+    .sort((a,b)=>new Date(fechaMovimientoPedido(a)||0)-new Date(fechaMovimientoPedido(b)||0) || Number(a.id||0)-Number(b.id||0));
+}
+function calcularCuentaCliente(clienteId){
+  const cacheKey=String(clienteId);
+  if(ccCacheCuentas.has(cacheKey)) return ccCacheCuentas.get(cacheKey);
+  const ordenes = pedidosDeCuentaCliente(clienteId);
+  const pagos = pagosDeCliente(clienteId).slice().sort((a,b)=>new Date(a.fecha||0)-new Date(b.fecha||0) || Number(a.id||0)-Number(b.id||0));
+  let disponible = pagos.reduce((a,x)=>a+Math.max(0,Number(x.importe||0)),0);
+  const asignaciones = {};
+  let totalPedidos = 0;
+  let totalHistoricoCubierto = 0;
+
+  ordenes.forEach(p=>{
+    const total = Math.max(0,Number(p.total||0));
+    totalPedidos += total;
+    if(pedidoCobradoHistorico(p)){
+      asignaciones[String(p.id)] = {total, cubierto:total, pendiente:0, estado:"Cobrado", historico:true};
+      totalHistoricoCubierto += total;
+      return;
+    }
+    const cubierto = Math.min(total, Math.max(0,disponible));
+    disponible = Math.max(0, disponible - cubierto);
+    const pendiente = Math.max(0,total-cubierto);
+    const estado = pendiente <= 0.009 ? "Cobrado" : (cubierto > 0.009 ? "Parcial" : "Pendiente");
+    asignaciones[String(p.id)] = {total,cubierto,pendiente,estado,historico:false};
+  });
+
+  const totalPagos = pagos.reduce((a,x)=>a+Math.max(0,Number(x.importe||0)),0);
+  const saldoPedidos = Object.values(asignaciones).reduce((a,x)=>a+Number(x.pendiente||0),0);
+  const saldo = saldoPedidos - disponible;
+
+  const movimientos = [];
+  ordenes.forEach(p=>{
+    const a = asignaciones[String(p.id)] || {total:Number(p.total||0),cubierto:0,pendiente:Number(p.total||0),estado:"Pendiente",historico:false};
+    movimientos.push({
+      tipo:"pedido",
+      id:`pedido-${p.id}`,
+      pedido_id:p.id,
+      fecha:fechaMovimientoPedido(p),
+      concepto:`Pedido #${p.id}`,
+      detalle:a.historico ? "Cobrado antes de implementar la cuenta corriente" : `Cobranza: ${a.estado} · Cubierto ${money(a.cubierto)} · Falta ${money(a.pendiente)}`,
+      debe:a.total,
+      haber:a.historico ? a.total : 0,
+      asignacion:a
+    });
+  });
+  pagos.forEach(pg=>{
+    movimientos.push({
+      tipo:"pago",
+      id:`pago-${pg.id}`,
+      pago_id:pg.id,
+      fecha:pg.fecha || pg.created_at,
+      concepto:`Pago${pg.metodo_pago ? " · "+pg.metodo_pago : ""}`,
+      detalle:[pg.observaciones, pg.usuario_nombre ? `Registró: ${pg.usuario_nombre}` : ""].filter(Boolean).join(" · "),
+      debe:0,
+      haber:Math.max(0,Number(pg.importe||0)),
+      pago:pg
+    });
+  });
+  movimientos.sort((a,b)=>{
+    const dif = new Date(a.fecha||0)-new Date(b.fecha||0);
+    if(dif) return dif;
+    if(a.tipo!==b.tipo) return a.tipo==="pedido" ? -1 : 1;
+    return String(a.id).localeCompare(String(b.id));
+  });
+  let corrido = 0;
+  movimientos.forEach(m=>{
+    corrido += Number(m.debe||0)-Number(m.haber||0);
+    m.saldo = corrido;
+  });
+
+  const ultimoPago = pagos.slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0))[0] || null;
+  const resultado={clienteId:String(clienteId), ordenes, pagos, asignaciones, movimientos, totalPedidos, totalPagos, totalHistoricoCubierto, creditoDisponible:disponible, saldo, ultimoPago};
+  ccCacheCuentas.set(cacheKey,resultado);
+  return resultado;
+}
+function infoCobranzaPedido(p){
+  if(!pedidoParticipaCuenta(p)) return {total:Number(p?.total||0),cubierto:0,pendiente:0,estado:"No aplica",historico:false};
+  const cid = clienteIdPedido(p);
+  if(!cid){
+    const total=Number(p?.total||0);
+    if(pedidoCobradoHistorico(p)) return {total,cubierto:total,pendiente:0,estado:"Cobrado",historico:true};
+    return {total,cubierto:Number(p?.cobro_cubierto||0),pendiente:Math.max(0,total-Number(p?.cobro_cubierto||0)),estado:p?.cobro_estado||"Pendiente",historico:false};
+  }
+  return calcularCuentaCliente(cid).asignaciones[String(p.id)] || {total:Number(p.total||0),cubierto:0,pendiente:Number(p.total||0),estado:"Pendiente",historico:false};
+}
+function badgeCobranzaPedidoHTML(p){
+  const a = infoCobranzaPedido(p);
+  if(a.estado==="No aplica") return '<span class="cc-fin-badge no-aplica">— No aplica</span>';
+  const cls = a.estado==="Cobrado" ? "cobrado" : (a.estado==="Parcial" ? "parcial" : "pendiente");
+  const icon = a.estado==="Cobrado" ? "✅" : (a.estado==="Parcial" ? "🟡" : "🔴");
+  return `<span class="cc-fin-badge ${cls}">${icon} ${escapeHtml(a.estado)}</span>${a.historico?'<div class="cc-sub">Histórico</div>':''}`;
+}
+function resumenGeneralCuentas(){
+  const cuentas = (clientes||[]).map(c=>({cliente:c, cuenta:calcularCuentaCliente(c.id)}));
+  const totalCobrar = cuentas.reduce((a,x)=>a+Math.max(0,Number(x.cuenta.saldo||0)),0);
+  const clientesDeuda = cuentas.filter(x=>Number(x.cuenta.saldo||0)>0.009).length;
+  const saldosFavor = cuentas.reduce((a,x)=>a+Math.max(0,-Number(x.cuenta.saldo||0)),0);
+  const totalPagos = (pagosClientes||[]).reduce((a,x)=>a+Math.max(0,Number(x.importe||0)),0);
+  return {cuentas,totalCobrar,clientesDeuda,saldosFavor,totalPagos};
+}
+function estadoSaldoCuentaHTML(saldo){
+  saldo=Number(saldo||0);
+  if(saldo>0.009) return `<span class="cc-balance debt">${money(saldo)}</span><div class="cc-sub">Debe</div>`;
+  if(saldo<-0.009) return `<span class="cc-balance credit">${money(Math.abs(saldo))}</span><div class="cc-sub">A favor</div>`;
+  return `<span class="cc-balance zero">${money(0)}</span><div class="cc-sub">Al día</div>`;
+}
+async function recalcularCobranzaCliente(clienteId, persistir=true){
+  if(clienteId===null || clienteId===undefined || String(clienteId)==="") return;
+  const cuenta = calcularCuentaCliente(clienteId);
+  const cambios = [];
+  cuenta.ordenes.forEach(p=>{
+    const a = cuenta.asignaciones[String(p.id)];
+    if(!a || a.historico) return;
+    const nuevoEstadoPedido = a.estado==="Cobrado" ? "Cobrado" : (String(p.estado)==="Cobrado" ? "Entregado" : p.estado);
+    const nuevaFechaCobrado = a.estado==="Cobrado" ? (p.fecha_cobrado || new Date().toISOString()) : "";
+    const cambio = String(p.cobro_estado||"")!==a.estado || Math.abs(Number(p.cobro_cubierto||0)-Number(a.cubierto||0))>0.009 || String(p.estado)!==String(nuevoEstadoPedido) || String(p.fecha_cobrado||"")!==String(nuevaFechaCobrado||"");
+    p.cobro_estado = a.estado;
+    p.cobro_cubierto = Number(a.cubierto||0);
+    p.fecha_cobrado = nuevaFechaCobrado;
+    p.estado = nuevoEstadoPedido;
+    if(cambio) cambios.push(p);
+  });
+  saveLocal();
+  if(sb && persistir && cambios.length){
+    for(const p of cambios){
+      const payload = {
+        cobro_estado:p.cobro_estado,
+        cobro_cubierto:Number(p.cobro_cubierto||0),
+        fecha_cobrado:p.fecha_cobrado || null,
+        estado:p.estado
+      };
+      const {error}=await sb.from("pedidos").update(payload).eq("id",p.id);
+      if(error){
+        console.error("Error actualizando cobranza del pedido",p.id,error);
+        toast(`No se pudo actualizar la cobranza del pedido #${p.id}: ${error.message}`,"error",5000);
+      }
+    }
+  }
+}
+function renderCuentasCorrientes(){
+  const listaView=document.getElementById("ccListaView");
+  const detalleView=document.getElementById("ccDetalleView");
+  if(!listaView || !detalleView) return;
+  if(cuentaClienteIdSeleccionado && !(clientes||[]).some(c=>String(c.id)===String(cuentaClienteIdSeleccionado))) cuentaClienteIdSeleccionado=null;
+  if(cuentaClienteIdSeleccionado){
+    listaView.style.display="none";
+    detalleView.style.display="block";
+    renderCuentaCorrienteDetalle();
+    return;
+  }
+  listaView.style.display="block";
+  detalleView.style.display="none";
+  const r=resumenGeneralCuentas();
+  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.innerText=v};
+  set("ccTotalCobrar",money(r.totalCobrar));
+  set("ccClientesDeuda",r.clientesDeuda);
+  set("ccSaldosFavor",money(r.saldosFavor));
+  set("ccPagosRegistrados",money(r.totalPagos));
+  const q=ccNorm(document.getElementById("buscarCuentaCorriente")?.value||"");
+  const data=r.cuentas.filter(x=>{
+    const vendedor=nombreVendedorPorId(x.cliente.vendedor_id||x.cliente.vendedor_nombre||"");
+    return !q || ccNorm(`${x.cliente.nombre||""} ${vendedor} ${x.cuenta.saldo}`).includes(q);
+  }).sort((a,b)=>Number(b.cuenta.saldo||0)-Number(a.cuenta.saldo||0) || String(a.cliente.nombre||"").localeCompare(String(b.cliente.nombre||"")));
+  const cont=document.getElementById("tablaCuentasCorrientes");
+  if(!cont) return;
+  cont.innerHTML=`<div class="cc-table-wrap"><table><thead><tr><th>Cliente</th><th>Saldo</th><th>Último pago</th><th>Pedidos en cuenta</th><th>Vendedor</th><th>Acción</th></tr></thead><tbody>${data.map(x=>{
+    const vendedor=nombreVendedorPorId(x.cliente.vendedor_id||x.cliente.vendedor_nombre||"")||"-";
+    return `<tr><td><div class="cc-client-name">${escapeHtml(x.cliente.nombre||"")}</div><div class="cc-sub">${escapeHtml(x.cliente.telefono||"")}</div></td><td>${estadoSaldoCuentaHTML(x.cuenta.saldo)}</td><td>${x.cuenta.ultimoPago?`${ccFechaAR(x.cuenta.ultimoPago.fecha)}<div class="cc-sub">${escapeHtml(x.cuenta.ultimoPago.metodo_pago||"")}</div>`:"-"}</td><td>${x.cuenta.ordenes.length}</td><td>${escapeHtml(vendedor)}</td><td><button class="btn" onclick='abrirCuentaCliente(${JSON.stringify(x.cliente.id)})'>Ver cuenta</button></td></tr>`;
+  }).join("")}</tbody></table></div>`;
+}
+function abrirCuentaCliente(clienteId){
+  cuentaClienteIdSeleccionado=String(clienteId);
+  const navBtn=Array.from(document.querySelectorAll(".nav button")).find(b=>b.textContent.includes("Cuenta Corriente"));
+  go("cuentasCorrientes",navBtn||null);
+}
+function volverListaCuentas(){
+  cuentaClienteIdSeleccionado=null;
+  renderCuentasCorrientes();
+}
+function limpiarFiltrosCuentaCorriente(){
+  ["ccFiltroDesde","ccFiltroHasta"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  const tipo=document.getElementById("ccFiltroTipo"); if(tipo) tipo.value="";
+  renderCuentaCorrienteDetalle();
+}
+function renderCuentaCorrienteDetalle(){
+  if(!cuentaClienteIdSeleccionado) return;
+  const cliente=(clientes||[]).find(c=>String(c.id)===String(cuentaClienteIdSeleccionado));
+  if(!cliente){cuentaClienteIdSeleccionado=null;return renderCuentasCorrientes();}
+  const cuenta=calcularCuentaCliente(cliente.id);
+  const vendedor=nombreVendedorPorId(cliente.vendedor_id||cliente.vendedor_nombre||"")||"Sin vendedor asignado";
+  const setText=(id,v)=>{const el=document.getElementById(id);if(el)el.innerText=v};
+  setText("ccDetalleNombre",cliente.nombre||"Cuenta corriente");
+  setText("ccDetalleMeta",[vendedor,cliente.telefono||"",cliente.localidad||""].filter(Boolean).join(" · "));
+  const saldoEl=document.getElementById("ccDetalleSaldo");
+  const saldoTxt=document.getElementById("ccDetalleSaldoTexto");
+  if(saldoEl){
+    saldoEl.className="cc-balance "+(cuenta.saldo>0.009?"debt":(cuenta.saldo<-0.009?"credit":"zero"));
+    saldoEl.innerText=money(Math.abs(cuenta.saldo));
+  }
+  if(saldoTxt) saldoTxt.innerText=cuenta.saldo>0.009?"Saldo pendiente":(cuenta.saldo<-0.009?"Saldo a favor":"Cuenta al día");
+  setText("ccDetallePedidos",cuenta.ordenes.length);
+  setText("ccDetalleDebe",money(cuenta.totalPedidos));
+  setText("ccDetalleHaber",money(cuenta.totalPagos));
+  setText("ccDetalleUltimoPago",cuenta.ultimoPago?ccFechaAR(cuenta.ultimoPago.fecha):"-");
+  const fechaInput=document.getElementById("ccPagoFecha"); if(fechaInput && !fechaInput.value) fechaInput.value=ccFechaInputHoy();
+
+  const tipo=document.getElementById("ccFiltroTipo")?.value||"";
+  const desde=document.getElementById("ccFiltroDesde")?.value||"";
+  const hasta=document.getElementById("ccFiltroHasta")?.value||"";
+  const movs=cuenta.movimientos.filter(m=>{
+    const ymd=ccYMD(m.fecha);
+    return (!tipo||m.tipo===tipo) && (!desde||ymd>=desde) && (!hasta||ymd<=hasta);
+  });
+  const cont=document.getElementById("ccMovimientos");
+  if(!cont) return;
+  if(!movs.length){cont.innerHTML='<div class="empty">No hay movimientos para mostrar con estos filtros.</div>';return;}
+  cont.innerHTML=`<div class="cc-table-wrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Debe</th><th>Haber</th><th>Saldo</th></tr></thead><tbody>${movs.map(m=>`<tr class="${m.tipo==="pedido"?"cc-movement-order":"cc-movement-payment"}"><td>${ccFechaAR(m.fecha)}</td><td><div class="cc-concept">${escapeHtml(m.concepto)}</div><div class="cc-sub">${escapeHtml(m.detalle||"")}</div></td><td class="cc-debe">${m.debe?money(m.debe):"-"}</td><td class="cc-haber">${m.haber?money(m.haber):"-"}</td><td class="cc-running">${m.saldo<0?`${money(Math.abs(m.saldo))} a favor`:money(m.saldo)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+async function registrarPagoCliente(){
+  if(!cuentaClienteIdSeleccionado) return toast("Elegí un cliente.","warning");
+  const cliente=(clientes||[]).find(c=>String(c.id)===String(cuentaClienteIdSeleccionado));
+  if(!cliente) return toast("No encontré el cliente.","error");
+  const importe=Number(document.getElementById("ccPagoImporte")?.value||0);
+  const fecha=document.getElementById("ccPagoFecha")?.value||ccFechaInputHoy();
+  const metodo=document.getElementById("ccPagoMetodo")?.value||"";
+  const observaciones=document.getElementById("ccPagoObservaciones")?.value.trim()||"";
+  if(!importe || importe<=0) return toast("Ingresá un importe mayor a 0.","warning");
+  if(!fecha) return toast("Elegí la fecha del pago.","warning");
+  if(!metodo) return toast("Elegí la forma de pago.","warning");
+  const fechaIso=new Date(`${fecha}T12:00:00`).toISOString();
+  const clienteIdNumerico=Number(cliente.id);
+  if(!Number.isFinite(clienteIdNumerico)) return toast("El ID del cliente no es compatible con la tabla pagos_clientes.","error",6000);
+  const payload={cliente_id:clienteIdNumerico,fecha:fechaIso,importe,metodo_pago:metodo,observaciones,usuario_nombre:currentUser?.nombre||""};
+  let pago={...payload,id:Date.now(),created_at:new Date().toISOString()};
+  if(sb){
+    const {data,error}=await sb.from("pagos_clientes").insert(payload).select().single();
+    if(error) return toast("No se pudo registrar el pago: "+error.message,"error",6000);
+    pago=data;
+  }
+  pagosClientes.push(pago);
+  saveLocal();
+  await recalcularCobranzaCliente(cliente.id,!!sb);
+  if(sb) await cargarDesdeSupabase();
+  document.getElementById("ccPagoImporte").value="";
+  document.getElementById("ccPagoMetodo").value="";
+  document.getElementById("ccPagoObservaciones").value="";
+  document.getElementById("ccPagoFecha").value=ccFechaInputHoy();
+  cuentaClienteIdSeleccionado=String(cliente.id);
+  renderAll();
+  toast(`Pago de ${money(importe)} registrado para ${cliente.nombre}.`,"success");
+}
+
 function parseCSV(text){
   const rows=[];let row=[],cell='',quote=false;
   for(let i=0;i<text.length;i++){
@@ -1636,8 +2076,12 @@ async function guardarPedido(){
   const importeDiferidaCabecera = referidoSeleccionado ? (baseDiferidaCabecera * pctDiferidaSeleccionada / 100) : 0;
   const pedidoAnterior = pedidoEditandoId ? JSON.parse(JSON.stringify(pedidos.find(p=>String(p.id)===String(pedidoEditandoId)) || null)) : null;
   const estadoFormularioPedido = document.getElementById("pEstado").value;
-  const fechaEntregadoGuardado = estadoFormularioPedido === "Entregado"
-    ? ((pedidoAnterior && pedidoAnterior.estado === "Entregado" && pedidoAnterior.fecha_entregado) ? pedidoAnterior.fecha_entregado : new Date().toISOString())
+  if(estadoFormularioPedido === "Cobrado" && !(pedidoAnterior && pedidoCobradoHistorico(pedidoAnterior))){
+    const infoAnterior = pedidoAnterior ? infoCobranzaPedido(pedidoAnterior) : null;
+    if(!infoAnterior || infoAnterior.estado !== "Cobrado") return toast("Los pedidos se marcan Cobrado automáticamente al registrar pagos en Cuenta Corriente.","warning",6000);
+  }
+  const fechaEntregadoGuardado = ["Entregado","Cobrado"].includes(estadoFormularioPedido)
+    ? ((pedidoAnterior && ["Entregado","Cobrado"].includes(pedidoAnterior.estado) && pedidoAnterior.fecha_entregado) ? pedidoAnterior.fecha_entregado : new Date().toISOString())
     : (pedidoAnterior?.fecha_entregado || "");
   let pedidoGuardado = null;
 
@@ -1650,6 +2094,9 @@ async function guardarPedido(){
       vendedor_id: vendedor.id,
       estado: estadoFormularioPedido,
       fecha_entregado: fechaEntregadoGuardado || null,
+      cobro_estado: pedidoAnterior?.cobro_estado || (estadoFormularioPedido==="Cobrado" ? "Cobrado" : "Pendiente"),
+      cobro_cubierto: Number(pedidoAnterior?.cobro_cubierto || (estadoFormularioPedido==="Cobrado" ? total : 0)),
+      fecha_cobrado: pedidoAnterior?.fecha_cobrado || null,
       observaciones: document.getElementById("pObservaciones").value.trim(),
       total: total,
       subtotal: totales.subtotal,
@@ -1684,6 +2131,9 @@ async function guardarPedido(){
     delete cabeceraBasica.usuario_nombre;
     delete cabeceraBasica.usuario_rol;
     delete cabeceraBasica.fecha_entregado;
+    delete cabeceraBasica.cobro_estado;
+    delete cabeceraBasica.cobro_cubierto;
+    delete cabeceraBasica.fecha_cobrado;
 
     if(pedidoEditandoId){
       let resPedido = await sb
@@ -1770,6 +2220,9 @@ async function guardarPedido(){
     vendedor_id:vendedor?vendedor.id:null,
     estado:estadoFormularioPedido,
     fecha_entregado: fechaEntregadoGuardado,
+    cobro_estado: pedidoAnterior?.cobro_estado || (estadoFormularioPedido==="Cobrado" ? "Cobrado" : "Pendiente"),
+    cobro_cubierto: Number(pedidoAnterior?.cobro_cubierto || (estadoFormularioPedido==="Cobrado" ? total : 0)),
+    fecha_cobrado: pedidoAnterior?.fecha_cobrado || "",
     observaciones:document.getElementById("pObservaciones").value.trim(),
     lineas:[...pedidoActual],
     subtotal:totales.subtotal,
@@ -1808,6 +2261,8 @@ async function guardarPedido(){
   limpiarPedido();
 
   if(sb) await cargarDesdeSupabase();
+  const idsCuenta = [...new Set([clienteIdPedido(pedidoAnterior||{}), clienteIdPedido(pedido)].filter(Boolean))];
+  for(const cid of idsCuenta) await recalcularCobranzaCliente(cid,!!sb);
   renderAll();
 }
 function limpiarPedido(){
@@ -2360,23 +2815,30 @@ function edCobranzaSemaforo(dias){
 }
 function edCobranzaData(){
   return (pedidos || [])
-    .filter(p=>String(p.estado||"") === "Entregado")
+    .filter(p=>pedidoParticipaCuenta(p))
     .map(p=>{
+      const cobranza=infoCobranzaPedido(p);
+      if(cobranza.estado==="Cobrado" || cobranza.historico || Number(cobranza.pendiente||0)<=0.009) return null;
       const fe = edCobranzaFechaEntrega(p);
       const dias = edCobranzaDiasDesde(fe.fecha);
       const sem = edCobranzaSemaforo(dias);
       return {
         pedido:p,
         id:p.id,
+        cliente_id:clienteIdPedido(p),
         cliente:clienteNombrePedido(p),
         vendedor:p.vendedor || getVendedorDePedido(p)?.nombre || "Sin vendedor",
-        total:Number(p.total||0),
+        total:Number(cobranza.pendiente||0),
+        total_pedido:Number(p.total||0),
+        cubierto:Number(cobranza.cubierto||0),
+        cobro_estado:cobranza.estado,
         fecha:fe.fecha,
         origen:fe.origen,
         dias,
         semaforo:sem
       };
     })
+    .filter(Boolean)
     .sort((a,b)=>b.dias-a.dias || b.total-a.total);
 }
 function edCobranzaResumen(items){
@@ -2412,15 +2874,15 @@ function edDashCobranzaPanel(items){
       <td>${edDashEscape(x.vendedor)}</td>
       <td>${edDashEscape(fecha)}<div class="dash-activity-detail">${edDashEscape(x.origen)}</div></td>
       <td><b>${edDashEscape(diasTxt)}</b></td>
-      <td>${money(x.total)}</td>
+      <td><b>${money(x.total)}</b><div class="dash-activity-detail">de ${money(x.total_pedido)} · ${edDashEscape(x.cobro_estado)}</div></td>
       <td><span class="cobranza-badge ${x.semaforo.nivel}">${x.semaforo.nivel==="red"?"🔴":(x.semaforo.nivel==="yellow"?"🟡":"🟢")} ${edDashEscape(x.semaforo.texto)}</span></td>
-      <td><button class="btn tiny success" onclick="confirmarMarcarCobrado(${JSON.stringify(x.id)})">Marcar cobrado</button></td>
+      <td>${x.cliente_id?`<button class="btn tiny success" onclick='abrirCuentaCliente(${JSON.stringify(x.cliente_id)})'>Ver cuenta</button>`:"-"}</td>
     </tr>`;
   }).join("");
   return `<div class="cobranza-head">
     <div>
       <h2>💰 Gestión de cobranzas</h2>
-      <div class="small">Pedidos entregados que todavía no figuran como cobrados. El semáforo se calcula desde la fecha de entrega.</div>
+      <div class="small">Saldo pendiente real después de aplicar los pagos del cliente a los pedidos más antiguos. El semáforo se calcula desde la fecha de entrega.</div>
     </div>
     <span class="cobranza-badge ${peor}">${peor==="red"?"🔴":(peor==="yellow"?"🟡":"🟢")} ${edDashEscape(estadoTxt)}</span>
   </div>
@@ -2442,8 +2904,10 @@ function edDashCobranzaPanel(items){
   </div>` : edDashEmpty("No hay pedidos entregados pendientes de cobro.")}`;
 }
 function confirmarMarcarCobrado(id){
-  if(!confirm(`Marcar el pedido #${id} como Cobrado?`)) return;
-  actualizarEstadoPedido(id, "Cobrado");
+  const pedido=pedidos.find(p=>String(p.id)===String(id));
+  const cid=pedido?clienteIdPedido(pedido):null;
+  if(cid) abrirCuentaCliente(cid);
+  else toast("Este pedido no tiene un cliente vinculado para abrir la cuenta corriente.","warning");
 }
 
 function renderDashboard(){
@@ -2485,18 +2949,21 @@ function renderDashboard(){
   const comGeneradaPeriodo = comisionesPeriodo.reduce((a,c)=>a+Number(c.importe||0),0);
   const cobranzaItems = edCobranzaData();
   const cobranzaResumen = edCobranzaResumen(cobranzaItems);
+  const cuentasResumen = resumenGeneralCuentas();
 
   setMetric("mVentasMes", money(ventasPeriodo));
   setMetric("mPedidosMes", pedidosPeriodo.length);
   setMetric("mTicketMes", money(ticket));
   setMetric("mComisionesMes", money(comPendPeriodo));
   setMetric("mProductosVendidosPeriodo", productosVendidos);
-  setMetric("mPendienteCobro", money(cobranzaResumen.total));
+  setMetric("mPendienteCobro", money(cuentasResumen.totalCobrar));
+  setMetric("mClientesDeuda", cuentasResumen.clientesDeuda);
   setText("mVentasSub", pedidosPeriodo.length ? `${pedidosPeriodo.length} pedidos cargados.` : "Sin pedidos en este período.");
   setText("mPedidosSub", pedidosPeriodo.length === 1 ? "1 pedido registrado." : `${pedidosPeriodo.length} pedidos registrados.`);
   setText("mComisionesSub", `${money(comPagadaPeriodo)} pagadas · ${money(comPendiente)} pendientes totales.`);
   setText("mProductosVendidosSub", `${productos.length} referencias en catálogo.`);
-  setText("mPendienteCobroSub", `${cobranzaItems.length} pedido${cobranzaItems.length===1?"":"s"} entregado${cobranzaItems.length===1?"":"s"} sin cobrar · ${cobranzaResumen.vencidos.length} vencido${cobranzaResumen.vencidos.length===1?"":"s"} +30 días.`);
+  setText("mPendienteCobroSub", `${money(cuentasResumen.totalCobrar)} en cuentas corrientes · ${cobranzaResumen.vencidos.length} pedido${cobranzaResumen.vencidos.length===1?"":"s"} con saldo +30 días.`);
+  setText("mClientesDeudaSub", `${cuentasResumen.clientesDeuda} cliente${cuentasResumen.clientesDeuda===1?"":"s"} con saldo pendiente.`);
   setHTML("dashCobranzaPanel", edDashCobranzaPanel(cobranzaItems));
 
   setHTML("dashVentasPorDia", edDashVentasConMovimiento(pedidosPeriodo) + `<div class="dash-trend-caption">Total del período: <b>${money(ventasPeriodo)}</b></div>`);
@@ -2691,6 +3158,7 @@ function renderPedidoTable(data){
 async function eliminarPedidoConPassword(id){
   if(currentUser?.rol !== "admin") return toast("Solo administradores pueden eliminar pedidos.", "error");
   const pedido = pedidos.find(p=>String(p.id)===String(id));
+  const clienteCuentaId = pedido ? clienteIdPedido(pedido) : null;
   const etiqueta = pedido ? `#${pedido.id} - ${pedido.cliente || "Sin cliente"}` : `#${id}`;
 
   if(!confirm(`Vas a eliminar el pedido ${etiqueta}.\n\nEsta acción no se puede deshacer. ¿Confirmás?`)) return;
@@ -2706,6 +3174,7 @@ async function eliminarPedidoConPassword(id){
     }
 
     pedidos = pedidos.filter(p=>String(p.id)!==String(id));
+    if(clienteCuentaId) await recalcularCobranzaCliente(clienteCuentaId,!!sb);
     delete comisionesPagas[id];
     localStorage.removeItem(`prep_checks_${id}`);
     saveLocal();
@@ -2719,28 +3188,35 @@ async function eliminarPedidoConPassword(id){
 async function actualizarEstadoPedido(id, estado){
   const pedido = pedidos.find(p=>p.id==id);
   const estadoAnterior = pedido ? pedido.estado : "";
-  const cambioAEntregado = String(estadoAnterior)!=="Entregado" && String(estado)==="Entregado";
-  const fechaEntregado = cambioAEntregado ? new Date().toISOString() : (pedido?.fecha_entregado || "");
+  if(!pedido) return toast("No encontré el pedido.","error");
 
-  if(pedido){
-    pedido.estado = estado;
-    if(cambioAEntregado) pedido.fecha_entregado = fechaEntregado;
+  if(String(estado)==="Cobrado" && String(estadoAnterior)!=="Cobrado"){
+    const info=infoCobranzaPedido(pedido);
+    if(info.estado!=="Cobrado"){
+      toast("Para cobrar un pedido, registrá el pago desde la Cuenta Corriente del cliente. El sistema lo marcará Cobrado automáticamente.","warning",6000);
+      renderAll();
+      return;
+    }
   }
+
+  const cambioAEntregado = !["Entregado","Cobrado"].includes(String(estadoAnterior)) && String(estado)==="Entregado";
+  const fechaEntregado = cambioAEntregado ? new Date().toISOString() : (pedido?.fecha_entregado || "");
+  const clienteId=clienteIdPedido(pedido);
+
+  pedido.estado = estado;
+  if(cambioAEntregado) pedido.fecha_entregado = fechaEntregado;
   if(String(estadoAnterior)!==String(estado)) registrarHistorialPedido(id, "Cambio de estado", `${estadoAnterior || "-"} → ${estado}`);
   saveLocal();
 
   if(sb){
-    let payload = {estado};
+    const payload = {estado};
     if(cambioAEntregado) payload.fecha_entregado = fechaEntregado;
-    let res = await sb.from("pedidos").update(payload).eq("id", id);
-    if(res.error && payload.fecha_entregado){
-      // Compatibilidad: si Supabase todavía no tiene fecha_entregado,
-      // actualiza el estado igual y conserva la fecha localmente.
-      res = await sb.from("pedidos").update({estado}).eq("id", id);
-    }
+    const res = await sb.from("pedidos").update(payload).eq("id", id);
     if(res.error) return toast("Error actualizando estado: " + res.error.message, "error");
+    if(clienteId) await recalcularCobranzaCliente(clienteId,true);
     await cargarDesdeSupabase();
   } else {
+    if(clienteId) await recalcularCobranzaCliente(clienteId,false);
     renderAll();
   }
 }
@@ -3261,7 +3737,7 @@ function renderClientes(){
         vendedorDiferido ? `<span class="badge purple">${escapeHtml(vendedorDiferido)} · ${Number(c.vendedor_diferido_porcentaje || 5)}%</span>` : "-",
         resumenLogisticaCliente(c),
         c.nota_interna ? `<span class="badge yellow">Con nota</span><div class="small">${escapeHtml(c.nota_interna)}</div>` : "-",
-        `<button class="btn secondary" onclick="verFichaCliente(${JSON.stringify(c.id)})">Ver ficha</button> <button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button> <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar</button> <button class="btn danger" onclick="eliminarCliente(${JSON.stringify(c.id)})">Eliminar</button>`
+        `<button class="btn secondary" onclick="verFichaCliente(${JSON.stringify(c.id)})">Ver ficha</button> <button class="btn secondary" onclick="abrirCuentaCliente(${JSON.stringify(c.id)})">Cuenta corriente</button> <button class="btn secondary" onclick="verHistorialCliente(${JSON.stringify(c.id)})">Historial</button> <button class="btn secondary" onclick="editarCliente(${JSON.stringify(c.id)})">Editar</button> <button class="btn danger" onclick="eliminarCliente(${JSON.stringify(c.id)})">Eliminar</button>`
       ];
     })
   );
@@ -4380,6 +4856,7 @@ async function exportBackupCompleto(){
         vendedores: sb ? await leerTablaBackup("vendedores") : vendedores,
         productos: sb ? await leerTablaBackup("productos") : productos,
         pedidos: sb ? await leerTablaBackup("pedidos") : pedidos,
+        pagos_clientes: sb ? await leerTablaBackup("pagos_clientes") : pagosClientes,
         detalle_pedidos: sb ? await leerTablaBackup("detalle_pedidos") : [],
         comisiones: sb ? await leerTablaBackup("comisiones") : []
       },
@@ -4388,6 +4865,7 @@ async function exportBackupCompleto(){
         vendedores,
         clientes,
         pedidos,
+        pagosClientes,
         comisionesPagas,
         comisionesPagosManual
       }
@@ -4419,12 +4897,14 @@ async function restaurarBackupCompleto(event){
       const detalle = tablas.detalle_pedidos || [];
       const coms = tablas.comisiones || [];
       const peds = tablas.pedidos || [];
+      const pagosCls = tablas.pagos_clientes || [];
       const cls = tablas.clientes || [];
       const vends = tablas.vendedores || [];
       const prods = tablas.productos || [];
 
       await sb.from("detalle_pedidos").delete().not("id","is",null);
       await sb.from("comisiones").delete().not("id","is",null);
+      await sb.from("pagos_clientes").delete().not("id","is",null);
       await sb.from("pedidos").delete().not("id","is",null);
       await sb.from("clientes").delete().not("id","is",null);
       await sb.from("vendedores").delete().not("id","is",null);
@@ -4434,6 +4914,7 @@ async function restaurarBackupCompleto(event){
       if(vends.length){ const {error}=await sb.from("vendedores").insert(vends.map(limpiarRegistroParaInsert)); if(error) throw error; }
       if(prods.length){ const {error}=await sb.from("productos").insert(prods.map(limpiarRegistroParaInsert)); if(error) throw error; }
       if(peds.length){ const {error}=await sb.from("pedidos").insert(peds.map(limpiarRegistroParaInsert)); if(error) throw error; }
+      if(pagosCls.length){ const {error}=await sb.from("pagos_clientes").insert(pagosCls.map(limpiarRegistroParaInsert)); if(error) throw error; }
       if(detalle.length){ const {error}=await sb.from("detalle_pedidos").insert(detalle.map(limpiarRegistroParaInsert)); if(error) throw error; }
       if(coms.length){ const {error}=await sb.from("comisiones").insert(coms.map(limpiarRegistroParaInsert)); if(error) console.warn(error); }
       await cargarDesdeSupabase();
@@ -4442,6 +4923,7 @@ async function restaurarBackupCompleto(event){
       vendedores = backup.local.vendedores || vendedores;
       clientes = backup.local.clientes || clientes;
       pedidos = backup.local.pedidos || pedidos;
+      pagosClientes = backup.local.pagosClientes || pagosClientes;
       comisionesPagas = backup.local.comisionesPagas || {};
       comisionesPagosManual = backup.local.comisionesPagosManual || {};
       saveLocal();
@@ -4486,7 +4968,8 @@ async function verificarSupabase(){
     ["clientes",["id","nombre","telefono","descuento_fijo","vendedor_id","vendedor_diferido_id","vendedor_diferido_porcentaje","zona","tipo_envio_preferido","transporte_preferido","horario_entrega","tipo_cliente","observacion_logistica","nro_cliente_original"]],
     ["vendedores",["id","nombre","porcentaje"]],
     ["productos",["sku","nombre","precio","comision_diferida"]],
-    ["pedidos",["id","fecha","cliente_id","vendedor_id","total","subtotal","base_comision","porcentaje_comision","referido_nombre","referido_id","porcentaje_comision_diferida","base_comision_diferida","comision_diferida_importe","comision_estado","comision_pagada_fecha","comision_pagado_importe","comision_pagos"]],
+    ["pedidos",["id","fecha","cliente_id","vendedor_id","total","subtotal","base_comision","porcentaje_comision","referido_nombre","referido_id","porcentaje_comision_diferida","base_comision_diferida","comision_diferida_importe","comision_estado","comision_pagada_fecha","comision_pagado_importe","comision_pagos","fecha_entregado","cobro_estado","cobro_cubierto","fecha_cobrado"]],
+    ["pagos_clientes",["id","cliente_id","fecha","importe","metodo_pago","observaciones","usuario_nombre","created_at"]],
     ["detalle_pedidos",["id","pedido_id","sku","cantidad","subtotal","comision_diferida"]],
     ["comisiones",["id"]]
   ];
@@ -4520,6 +5003,7 @@ function debouncedSearch(){
     // Solo renderiza listas, no reconstruye el formulario de pedido
     renderPedidos();
     renderDashboard();
+    renderCuentasCorrientes();
     renderComisiones();
   }, 220);
 }
@@ -4529,6 +5013,7 @@ function renderAll(){
   actualizarSugerenciasProductos();
   renderDashboard();
   renderPedidos();
+  renderCuentasCorrientes();
   renderPreparacion();
   renderListaCorte();
   renderProductos();
@@ -4775,18 +5260,24 @@ async function exportarPedidoSimple(id){
 }
 
 function renderPedidoTable(data){
-  return table(['Fecha','Cliente','Vendedor','Usuario','Estado','Subtotal','Desc.','Ajuste','Total',''],data.map(p=>[
-    new Date(p.fecha).toLocaleDateString('es-AR'),
-    p.cliente||'',
-    p.vendedor||'',
-    p.usuario_nombre || '-',
-    selectEstadoHTML(p.id, p.estado),
-    money(subtotalPedido(p)),
-    (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+'%' : '-'),
-    (ajusteImportePedido(p) ? money(ajusteImportePedido(p)) : '-'),
-    money(p.total),
-    `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='abrirRemito(${JSON.stringify(p.id)})'>Remito completo</button> <button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button> <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button> ${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}`
-  ]));
+  return table(['Fecha','Cliente','Vendedor','Usuario','Estado','Cobranza','Cubierto / Falta','Subtotal','Desc.','Ajuste','Total',''],data.map(p=>{
+    const cobro=infoCobranzaPedido(p);
+    const detalleCobro = cobro.estado==='No aplica' ? '-' : `<div class="cc-amount-detail"><span>Cubierto: <b>${money(cobro.cubierto)}</b></span><span>Falta: <b>${money(cobro.pendiente)}</b></span></div>`;
+    return [
+      new Date(p.fecha).toLocaleDateString('es-AR'),
+      p.cliente||'',
+      p.vendedor||'',
+      p.usuario_nombre || '-',
+      selectEstadoHTML(p.id, p.estado),
+      badgeCobranzaPedidoHTML(p),
+      detalleCobro,
+      money(subtotalPedido(p)),
+      (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+'%' : '-'),
+      (ajusteImportePedido(p) ? money(ajusteImportePedido(p)) : '-'),
+      money(p.total),
+      `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='abrirRemito(${JSON.stringify(p.id)})'>Remito completo</button> <button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button> ${clienteIdPedido(p)?`<button class="btn secondary" onclick='abrirCuentaCliente(${JSON.stringify(clienteIdPedido(p))})'>Cuenta</button>`:''} <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button> ${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}`
+    ];
+  }));
 }
 
 async function verPreparacion(id){
