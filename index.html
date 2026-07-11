@@ -862,13 +862,14 @@ function toast(msg, tipo='', duracion=3500){
         </div>
 
         <div class="card">
-          <h2>Registrar pago</h2>
+          <h2 id="ccPagoFormTitulo">Registrar pago</h2>
           <div class="cc-payment-form">
             <div><label>Fecha</label><input id="ccPagoFecha" type="date"></div>
             <div><label>Importe</label><input id="ccPagoImporte" type="number" min="0.01" step="0.01" placeholder="$ 0"></div>
             <div><label>Forma de pago</label><select id="ccPagoMetodo"><option value="">Elegir</option><option>Efectivo</option><option>Transferencia</option><option>Financiera</option><option>Mercado Pago</option><option>Otro</option></select></div>
             <div><label>Observaciones</label><input id="ccPagoObservaciones" placeholder="Referencia, banco, comprobante, etc."></div>
-            <button class="btn success" onclick="registrarPagoCliente()">Registrar pago</button>
+            <button id="ccPagoGuardarBtn" class="btn success" onclick="registrarPagoCliente()">Registrar pago</button>
+            <button id="ccPagoCancelarBtn" class="btn secondary" style="display:none" onclick="cancelarEdicionPagoCliente()">Cancelar edición</button>
           </div>
           <div class="small" style="margin-top:10px">El pago se aplica automáticamente a los pedidos más antiguos del cliente. Si sobra dinero, queda como saldo a favor para próximos pedidos.</div>
         </div>
@@ -1353,6 +1354,7 @@ let clientes = JSON.parse(localStorage.getItem("ed_clientes") || "[]");
 let pedidos = JSON.parse(localStorage.getItem("ed_pedidos") || "[]");
 let pagosClientes = JSON.parse(localStorage.getItem("ed_pagos_clientes") || "[]");
 let cuentaClienteIdSeleccionado = null;
+let ccPagoEditandoId = null;
 let listaCorte = JSON.parse(localStorage.getItem("ed_lista_corte") || "[]");
 let comisionesPagas = JSON.parse(localStorage.getItem("ed_comisiones_pagas") || "{}");
 let comisionesPagosManual = JSON.parse(localStorage.getItem("ed_comisiones_pagos_manual") || "{}");
@@ -1571,14 +1573,24 @@ function clienteIdPedido(p){
   return c ? String(c.id) : null;
 }
 function pedidoParticipaCuenta(p){
-  return ["Entregado","Cobrado"].includes(String(p?.estado||""));
+  // Un pedido sigue perteneciendo a la cuenta corriente aunque luego se cambie
+  // su estado operativo (por ejemplo, de Cobrado a Preparado). Así los pagos
+  // ya imputados no se convierten erróneamente en saldo a favor.
+  const estado = String(p?.estado||"");
+  const cobroEstado = String(p?.cobro_estado||"");
+  const cubierto = Number(p?.cobro_cubierto||0);
+  return ["Entregado","Cobrado"].includes(estado) || !!p?.fecha_entregado || cubierto > 0.009 || ["Parcial","Cobrado"].includes(cobroEstado);
 }
 function pedidoCobradoHistorico(p){
-  if(String(p?.estado||"") !== "Cobrado") return false;
+  const total = Math.max(0,Number(p?.total||0));
   const tieneFechaNueva = !!p?.fecha_cobrado;
-  const cubiertoNuevo = Number(p?.cobro_cubierto||0) > 0;
-  const estadoNuevo = String(p?.cobro_estado||"") === "Cobrado" && cubiertoNuevo;
-  return !tieneFechaNueva && !estadoNuevo;
+  const cubierto = Number(p?.cobro_cubierto||0);
+  const cobroMarcado = String(p?.cobro_estado||"") === "Cobrado" && cubierto >= Math.max(0,total-0.009);
+  // Compatibilidad con pedidos que ya estaban cobrados antes de crear pagos_clientes.
+  // También se conserva si el usuario cambia luego su estado operativo.
+  const legadoPorEstado = String(p?.estado||"") === "Cobrado" && !tieneFechaNueva && !cobroMarcado;
+  const legadoPreservado = cobroMarcado && !tieneFechaNueva;
+  return legadoPorEstado || legadoPreservado;
 }
 function fechaMovimientoPedido(p){
   return p?.fecha_entregado || p?.fecha || new Date().toISOString();
@@ -1703,7 +1715,14 @@ async function recalcularCobranzaCliente(clienteId, persistir=true){
   cuenta.ordenes.forEach(p=>{
     const a = cuenta.asignaciones[String(p.id)];
     if(!a || a.historico) return;
-    const nuevoEstadoPedido = a.estado==="Cobrado" ? "Cobrado" : (String(p.estado)==="Cobrado" ? "Entregado" : p.estado);
+    // La cobranza y el estado operativo son conceptos distintos.
+    // Solo promovemos Entregado -> Cobrado automáticamente. Si alguien bajó
+    // manualmente un pedido a Preparado, no lo forzamos otra vez a Cobrado.
+    // Si un pago se corrige o elimina y ya no alcanza, Cobrado vuelve a Entregado.
+    const estadoActual = String(p.estado||"");
+    const nuevoEstadoPedido = a.estado==="Cobrado"
+      ? (estadoActual==="Entregado" ? "Cobrado" : estadoActual)
+      : (estadoActual==="Cobrado" ? "Entregado" : estadoActual);
     const nuevaFechaCobrado = a.estado==="Cobrado" ? (p.fecha_cobrado || new Date().toISOString()) : "";
     const cambio = String(p.cobro_estado||"")!==a.estado || Math.abs(Number(p.cobro_cubierto||0)-Number(a.cubierto||0))>0.009 || String(p.estado)!==String(nuevoEstadoPedido) || String(p.fecha_cobrado||"")!==String(nuevaFechaCobrado||"");
     p.cobro_estado = a.estado;
@@ -1761,11 +1780,13 @@ function renderCuentasCorrientes(){
   }).join("")}</tbody></table></div>`;
 }
 function abrirCuentaCliente(clienteId){
+  if(ccPagoEditandoId!==null) limpiarFormularioPagoCliente();
   cuentaClienteIdSeleccionado=String(clienteId);
   const navBtn=Array.from(document.querySelectorAll(".nav button")).find(b=>b.textContent.includes("Cuenta Corriente"));
   go("cuentasCorrientes",navBtn||null);
 }
 function volverListaCuentas(){
+  if(ccPagoEditandoId!==null) limpiarFormularioPagoCliente();
   cuentaClienteIdSeleccionado=null;
   renderCuentasCorrientes();
 }
@@ -1806,7 +1827,55 @@ function renderCuentaCorrienteDetalle(){
   const cont=document.getElementById("ccMovimientos");
   if(!cont) return;
   if(!movs.length){cont.innerHTML='<div class="empty">No hay movimientos para mostrar con estos filtros.</div>';return;}
-  cont.innerHTML=`<div class="cc-table-wrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Debe</th><th>Haber</th><th>Saldo</th></tr></thead><tbody>${movs.map(m=>`<tr class="${m.tipo==="pedido"?"cc-movement-order":"cc-movement-payment"}"><td>${ccFechaAR(m.fecha)}</td><td><div class="cc-concept">${escapeHtml(m.concepto)}</div><div class="cc-sub">${escapeHtml(m.detalle||"")}</div></td><td class="cc-debe">${m.debe?money(m.debe):"-"}</td><td class="cc-haber">${m.haber?money(m.haber):"-"}</td><td class="cc-running">${m.saldo<0?`${money(Math.abs(m.saldo))} a favor`:money(m.saldo)}</td></tr>`).join("")}</tbody></table></div>`;
+  cont.innerHTML=`<div class="cc-table-wrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Debe</th><th>Haber</th><th>Saldo</th><th>Acciones</th></tr></thead><tbody>${movs.map(m=>`<tr class="${m.tipo==="pedido"?"cc-movement-order":"cc-movement-payment"}"><td>${ccFechaAR(m.fecha)}</td><td><div class="cc-concept">${escapeHtml(m.concepto)}</div><div class="cc-sub">${escapeHtml(m.detalle||"")}</div></td><td class="cc-debe">${m.debe?money(m.debe):"-"}</td><td class="cc-haber">${m.haber?money(m.haber):"-"}</td><td class="cc-running">${m.saldo<0?`${money(Math.abs(m.saldo))} a favor`:money(m.saldo)}</td><td>${m.tipo==="pago"?`<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn tiny secondary" onclick='editarPagoCliente(${JSON.stringify(m.pago_id)})'>Editar</button><button class="btn tiny danger" onclick='eliminarPagoCliente(${JSON.stringify(m.pago_id)})'>Eliminar</button></div>`:"-"}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function limpiarFormularioPagoCliente(){
+  ccPagoEditandoId = null;
+  const titulo=document.getElementById("ccPagoFormTitulo"); if(titulo) titulo.innerText="Registrar pago";
+  const btn=document.getElementById("ccPagoGuardarBtn"); if(btn) btn.innerText="Registrar pago";
+  const cancelar=document.getElementById("ccPagoCancelarBtn"); if(cancelar) cancelar.style.display="none";
+  const importe=document.getElementById("ccPagoImporte"); if(importe) importe.value="";
+  const metodo=document.getElementById("ccPagoMetodo"); if(metodo) metodo.value="";
+  const obs=document.getElementById("ccPagoObservaciones"); if(obs) obs.value="";
+  const fecha=document.getElementById("ccPagoFecha"); if(fecha) fecha.value=ccFechaInputHoy();
+}
+function cancelarEdicionPagoCliente(){
+  limpiarFormularioPagoCliente();
+  toast("Edición cancelada.");
+}
+function editarPagoCliente(pagoId){
+  const pago=(pagosClientes||[]).find(x=>String(x.id)===String(pagoId));
+  if(!pago) return toast("No encontré el pago.","error");
+  if(String(pago.cliente_id)!==String(cuentaClienteIdSeleccionado)) return toast("Ese pago pertenece a otra cuenta.","error");
+  ccPagoEditandoId=String(pago.id);
+  const titulo=document.getElementById("ccPagoFormTitulo"); if(titulo) titulo.innerText="Editar pago";
+  const btn=document.getElementById("ccPagoGuardarBtn"); if(btn) btn.innerText="Guardar cambios";
+  const cancelar=document.getElementById("ccPagoCancelarBtn"); if(cancelar) cancelar.style.display="inline-block";
+  document.getElementById("ccPagoFecha").value=ccYMD(pago.fecha||pago.created_at)||ccFechaInputHoy();
+  document.getElementById("ccPagoImporte").value=Number(pago.importe||0);
+  document.getElementById("ccPagoMetodo").value=pago.metodo_pago||"";
+  document.getElementById("ccPagoObservaciones").value=pago.observaciones||"";
+  document.getElementById("ccPagoImporte")?.focus();
+}
+async function eliminarPagoCliente(pagoId){
+  const pago=(pagosClientes||[]).find(x=>String(x.id)===String(pagoId));
+  if(!pago) return toast("No encontré el pago.","error");
+  const cliente=(clientes||[]).find(c=>String(c.id)===String(pago.cliente_id));
+  const etiqueta=`${money(pago.importe)} del ${ccFechaAR(pago.fecha)}`;
+  if(!confirm(`Vas a eliminar el pago de ${etiqueta}${cliente?.nombre?` de ${cliente.nombre}`:""}.\n\nLa cuenta corriente y los pedidos se recalcularán automáticamente. ¿Confirmás?`)) return;
+  if(!(await validarPasswordUsuarioActual(`Eliminar pago ${etiqueta}`))) return;
+  if(sb){
+    const {error}=await sb.from("pagos_clientes").delete().eq("id",pago.id);
+    if(error) return toast("No se pudo eliminar el pago: "+error.message,"error",6000);
+  }
+  pagosClientes=pagosClientes.filter(x=>String(x.id)!==String(pago.id));
+  saveLocal();
+  if(String(ccPagoEditandoId)===String(pago.id)) limpiarFormularioPagoCliente();
+  await recalcularCobranzaCliente(pago.cliente_id,!!sb);
+  if(sb) await cargarDesdeSupabase();
+  cuentaClienteIdSeleccionado=String(pago.cliente_id);
+  renderAll();
+  toast(`Pago de ${money(pago.importe)} eliminado y cuenta recalculada.`,"success");
 }
 async function registrarPagoCliente(){
   if(!cuentaClienteIdSeleccionado) return toast("Elegí un cliente.","warning");
@@ -1822,7 +1891,30 @@ async function registrarPagoCliente(){
   const fechaIso=new Date(`${fecha}T12:00:00`).toISOString();
   const clienteIdNumerico=Number(cliente.id);
   if(!Number.isFinite(clienteIdNumerico)) return toast("El ID del cliente no es compatible con la tabla pagos_clientes.","error",6000);
+  const editando = ccPagoEditandoId !== null && ccPagoEditandoId !== undefined;
   const payload={cliente_id:clienteIdNumerico,fecha:fechaIso,importe,metodo_pago:metodo,observaciones,usuario_nombre:currentUser?.nombre||""};
+
+  if(editando){
+    const idx=pagosClientes.findIndex(x=>String(x.id)===String(ccPagoEditandoId));
+    if(idx<0) return toast("No encontré el pago que estabas editando.","error");
+    const pagoAnterior=pagosClientes[idx];
+    if(String(pagoAnterior.cliente_id)!==String(cliente.id)) return toast("El pago que estabas editando pertenece a otra cuenta. Volvé a abrirlo desde su cliente.","error",6000);
+    if(sb){
+      const {data,error}=await sb.from("pagos_clientes").update(payload).eq("id",pagoAnterior.id).select().single();
+      if(error) return toast("No se pudo modificar el pago: "+error.message,"error",6000);
+      pagosClientes[idx]=data;
+    }else{
+      pagosClientes[idx]={...pagoAnterior,...payload};
+    }
+    saveLocal();
+    await recalcularCobranzaCliente(cliente.id,!!sb);
+    if(sb) await cargarDesdeSupabase();
+    cuentaClienteIdSeleccionado=String(cliente.id);
+    limpiarFormularioPagoCliente();
+    renderAll();
+    return toast(`Pago corregido a ${money(importe)}. La cuenta fue recalculada.`,"success");
+  }
+
   let pago={...payload,id:Date.now(),created_at:new Date().toISOString()};
   if(sb){
     const {data,error}=await sb.from("pagos_clientes").insert(payload).select().single();
@@ -1833,11 +1925,8 @@ async function registrarPagoCliente(){
   saveLocal();
   await recalcularCobranzaCliente(cliente.id,!!sb);
   if(sb) await cargarDesdeSupabase();
-  document.getElementById("ccPagoImporte").value="";
-  document.getElementById("ccPagoMetodo").value="";
-  document.getElementById("ccPagoObservaciones").value="";
-  document.getElementById("ccPagoFecha").value=ccFechaInputHoy();
   cuentaClienteIdSeleccionado=String(cliente.id);
+  limpiarFormularioPagoCliente();
   renderAll();
   toast(`Pago de ${money(importe)} registrado para ${cliente.nombre}.`,"success");
 }
@@ -3190,27 +3279,49 @@ async function actualizarEstadoPedido(id, estado){
   const estadoAnterior = pedido ? pedido.estado : "";
   if(!pedido) return toast("No encontré el pedido.","error");
 
+  const infoAntes = infoCobranzaPedido(pedido);
+  const eraHistorico = pedidoCobradoHistorico(pedido);
+
   if(String(estado)==="Cobrado" && String(estadoAnterior)!=="Cobrado"){
-    const info=infoCobranzaPedido(pedido);
-    if(info.estado!=="Cobrado"){
-      toast("Para cobrar un pedido, registrá el pago desde la Cuenta Corriente del cliente. El sistema lo marcará Cobrado automáticamente.","warning",6000);
+    if(infoAntes.estado!=="Cobrado"){
+      toast("Para cobrar un pedido, registrá o corregí el pago desde la Cuenta Corriente del cliente. El sistema lo marcará Cobrado automáticamente.","warning",6000);
       renderAll();
       return;
     }
   }
 
-  const cambioAEntregado = !["Entregado","Cobrado"].includes(String(estadoAnterior)) && String(estado)==="Entregado";
-  const fechaEntregado = cambioAEntregado ? new Date().toISOString() : (pedido?.fecha_entregado || "");
-  const clienteId=clienteIdPedido(pedido);
+  // Si era un pedido histórico cobrado y se cambia su estado operativo,
+  // preservamos la marca de cobranza histórica para no generar deuda falsa.
+  if(eraHistorico && String(estado)!=="Cobrado"){
+    pedido.cobro_estado="Cobrado";
+    pedido.cobro_cubierto=Number(pedido.total||0);
+    pedido.fecha_cobrado=""; // vacío = cobro previo a la implementación de Cuenta Corriente
+    pedido.fecha_entregado=pedido.fecha_entregado || pedido.fecha || new Date().toISOString();
+  }
 
+  const esRetrocesoAntesDeEntrega = ["Entregado","Cobrado"].includes(String(estadoAnterior)) && !["Entregado","Cobrado"].includes(String(estado));
+  const tieneCobroAplicado = eraHistorico || Number(infoAntes.cubierto||0)>0.009 || ["Parcial","Cobrado"].includes(String(pedido.cobro_estado||""));
+
+  const cambioAEntregado = !["Entregado","Cobrado"].includes(String(estadoAnterior)) && ["Entregado","Cobrado"].includes(String(estado));
+  let fechaEntregado = pedido?.fecha_entregado || "";
+  if(cambioAEntregado && !fechaEntregado) fechaEntregado = new Date().toISOString();
+  // Si se retrocede un pedido sin ningún cobro, deja de generar deuda hasta volver a entregarse.
+  if(esRetrocesoAntesDeEntrega && !tieneCobroAplicado) fechaEntregado = "";
+
+  const clienteId=clienteIdPedido(pedido);
   pedido.estado = estado;
-  if(cambioAEntregado) pedido.fecha_entregado = fechaEntregado;
+  pedido.fecha_entregado = fechaEntregado;
   if(String(estadoAnterior)!==String(estado)) registrarHistorialPedido(id, "Cambio de estado", `${estadoAnterior || "-"} → ${estado}`);
   saveLocal();
 
   if(sb){
-    const payload = {estado};
-    if(cambioAEntregado) payload.fecha_entregado = fechaEntregado;
+    const payload = {
+      estado,
+      fecha_entregado: fechaEntregado || null,
+      cobro_estado: pedido.cobro_estado || "Pendiente",
+      cobro_cubierto: Number(pedido.cobro_cubierto||0),
+      fecha_cobrado: pedido.fecha_cobrado || null
+    };
     const res = await sb.from("pedidos").update(payload).eq("id", id);
     if(res.error) return toast("Error actualizando estado: " + res.error.message, "error");
     if(clienteId) await recalcularCobranzaCliente(clienteId,true);
@@ -3220,6 +3331,7 @@ async function actualizarEstadoPedido(id, estado){
     renderAll();
   }
 }
+
 async function obtenerLineasPedido(id){
   if(!sb){
     const pedido = pedidos.find(p=>p.id==id);
