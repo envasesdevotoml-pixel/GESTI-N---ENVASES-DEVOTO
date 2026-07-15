@@ -5371,6 +5371,94 @@ async function exportarPedidoSimple(id){
   abrirDocumentoImprimible('Documento simple', documentoRemitoSimple(pedido, lineas));
 }
 
+async function duplicarPedido(id){
+  const pedido = pedidos.find(p=>String(p.id)===String(id));
+  if(!pedido) return toast("No encontré el pedido para duplicar.", "error");
+
+  const lineas = await obtenerLineasPedido(id);
+  if(!lineas || !lineas.length) return toast("El pedido no tiene productos para duplicar.", "warning");
+
+  // Es un pedido NUEVO: nunca conserva el ID, estado, cobros, fechas ni comisiones pagadas.
+  pedidoEditandoId = null;
+  pedidoActual = lineas.filter(Boolean).map(l=>({
+    sku: l.sku || "",
+    nombre: l.producto || l.nombre || "",
+    cantidad: Number(l.cantidad || 0),
+    precio: Number(l.precio_unitario || l.precio || 0),
+    descuento_porcentaje: Number(l.descuento_porcentaje || l.descuento || 0),
+    precio_final: Number(l.precio_final || 0),
+    subtotal: Number(l.subtotal || 0),
+    codigo_barras: l.codigo_barras || "",
+    comision_diferida: !!(l.comision_diferida || productos.find(p=>p.sku===(l.sku||""))?.comision_diferida)
+  })).map(l=>{
+    // Compatibilidad con pedidos viejos que no guardaban el porcentaje de descuento.
+    if(!l.descuento_porcentaje && l.precio && l.cantidad && l.subtotal && Math.abs(l.subtotal - (l.precio*l.cantidad)) > 0.01){
+      l.descuento_porcentaje = Math.max(0, 100 - ((l.subtotal / (l.precio*l.cantidad)) * 100));
+    }
+    return recalcularLinea(l);
+  });
+
+  const navBtn = Array.from(document.querySelectorAll(".nav button")).find(b=>b.textContent.includes("Cargar pedido"));
+  go("nuevoPedido", navBtn || null);
+
+  // El nuevo cliente se elige manualmente. Al seleccionarlo se cargan automáticamente
+  // su teléfono, vendedor, logística y referido asignados.
+  document.getElementById("pCliente").value = "";
+  document.getElementById("pTelefono").value = "";
+  document.getElementById("pEstado").value = "Pendiente";
+  document.getElementById("pObservaciones").value = pedido.observaciones || "";
+
+  const notaCliente = document.getElementById("pNotaInternaCliente");
+  if(notaCliente){ notaCliente.style.display = "none"; notaCliente.innerHTML = ""; }
+
+  const ent = document.getElementById("pMetodoEntrega");
+  if(ent) ent.value = pedido.metodo_entrega || "";
+  const pag = document.getElementById("pMetodoPago");
+  if(pag) pag.value = pedido.metodo_pago || "";
+
+  const desc = Number(pedido.descuento_porcentaje || 0);
+  const descInput = document.getElementById("pDescuento");
+  if(descInput) descInput.value = desc;
+  const descPreset = document.getElementById("pDescuentoPreset");
+  if(descPreset) descPreset.value = ["0","5","10","15","20"].includes(String(desc)) ? String(desc) : "manual";
+
+  const ajustePct = ajustePorcentajePedido(pedido);
+  const ajusteValor = ajustePct ? Number(ajustePct.toFixed(4)) : 0;
+  const ajusteInput = document.getElementById("pAjuste");
+  if(ajusteInput) ajusteInput.value = ajusteValor;
+  const ajustePreset = document.getElementById("pAjustePreset");
+  if(ajustePreset) ajustePreset.value = ["0","4","10.5","21"].includes(String(ajusteValor)) ? String(ajusteValor) : "manual";
+
+  const vendedorIndex = vendedores.findIndex(v=>v.id==pedido.vendedor_id || v.nombre==pedido.vendedor);
+  const selVendedor = document.getElementById("pVendedor");
+  if(selVendedor) selVendedor.value = vendedorIndex >= 0 ? String(vendedorIndex) : "";
+
+  const referidoIndex = vendedores.findIndex(v=>v.id==pedido.referido_id || v.nombre==pedido.referido_nombre);
+  const selReferido = document.getElementById("pReferido");
+  if(selReferido) selReferido.value = referidoIndex >= 0 ? String(referidoIndex) : "";
+  const pctDif = document.getElementById("pComisionDiferidaPct");
+  if(pctDif) pctDif.value = Number(pedido.porcentaje_comision_diferida || 5);
+
+  renderPedidoActual();
+
+  const card = document.querySelector("#nuevoPedido .card");
+  let aviso = document.getElementById("avisoEdicionPedido");
+  if(!aviso && card){
+    aviso = document.createElement("div");
+    aviso.id = "avisoEdicionPedido";
+    aviso.className = "edit-alert";
+    card.prepend(aviso);
+  }
+  if(aviso) aviso.innerHTML = `Duplicando pedido #${escapeHtml(id)}. Elegí el nuevo cliente y revisá los datos antes de guardar. <button class="btn secondary" onclick="limpiarPedido()">Cancelar duplicación</button>`;
+
+  const btn = document.getElementById("btnGuardarPedido");
+  if(btn) btn.innerText = "Guardar pedido duplicado";
+
+  actualizarSugerenciasClientes();
+  document.getElementById("pCliente")?.focus();
+  toast(`Pedido #${id} copiado. Ahora elegí el nuevo cliente.`, "success", 5000);
+}
+
 function renderPedidoTable(data){
   return table(['Fecha','Cliente','Vendedor','Usuario','Estado','Cobranza','Cubierto / Falta','Subtotal','Desc.','Ajuste','Total',''],data.map(p=>{
     const cobro=infoCobranzaPedido(p);
@@ -5387,7 +5475,7 @@ function renderPedidoTable(data){
       (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+'%' : '-'),
       (ajusteImportePedido(p) ? money(ajusteImportePedido(p)) : '-'),
       money(p.total),
-      `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='abrirRemito(${JSON.stringify(p.id)})'>Remito completo</button> <button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button> ${clienteIdPedido(p)?`<button class="btn secondary" onclick='abrirCuentaCliente(${JSON.stringify(clienteIdPedido(p))})'>Cuenta</button>`:''} <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button> ${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}`
+      `<button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button> <button class="btn secondary" onclick='abrirRemito(${JSON.stringify(p.id)})'>Remito completo</button> <button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button> ${clienteIdPedido(p)?`<button class="btn secondary" onclick='abrirCuentaCliente(${JSON.stringify(clienteIdPedido(p))})'>Cuenta</button>`:''} <button class="btn secondary" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button> <button class="btn secondary" onclick='duplicarPedido(${JSON.stringify(p.id)})'>Duplicar</button> <button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button> ${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}`
     ];
   }));
 }
