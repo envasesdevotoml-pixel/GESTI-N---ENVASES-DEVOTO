@@ -831,9 +831,22 @@ function toast(msg, tipo='', duracion=3500){
         </div>
         <div class="card">
           <div class="cc-toolbar">
-            <input id="buscarCuentaCorriente" placeholder="Buscar cliente, vendedor o saldo..." oninput="renderCuentasCorrientes()" style="min-width:280px;flex:1">
+            <input id="buscarCuentaCorriente" placeholder="Buscar cliente, vendedor o saldo..." oninput="renderCuentasCorrientes()" style="min-width:260px;flex:1">
+            <select id="ccFiltroVendedor" onchange="renderCuentasCorrientes()" title="Filtrar por vendedor">
+              <option value="">Todos los vendedores</option>
+              <option value="__sin_vendedor__">Sin vendedor asignado</option>
+            </select>
+            <select id="ccFiltroSaldo" onchange="renderCuentasCorrientes()" title="Filtrar por estado de cuenta">
+              <option value="">Todos los saldos</option>
+              <option value="deuda">Solo con deuda</option>
+              <option value="al_dia">Al día</option>
+              <option value="favor">Con saldo a favor</option>
+            </select>
             <button class="btn secondary" onclick="renderCuentasCorrientes()">Actualizar</button>
+            <button class="btn" onclick="exportarCuentasCorrientesExcel(false)">Descargar cuentas filtradas</button>
+            <button class="btn success" onclick="exportarCuentasCorrientesExcel(true)">Descargar deudores</button>
           </div>
+          <div class="small" style="margin-bottom:12px">Las descargas respetan la búsqueda y el vendedor seleccionado. “Descargar deudores” incluye únicamente clientes con saldo pendiente.</div>
           <div id="tablaCuentasCorrientes"></div>
         </div>
       </div>
@@ -842,7 +855,10 @@ function toast(msg, tipo='', duracion=3500){
         <div class="card">
           <div class="cc-detail-head">
             <div>
-              <button class="btn secondary" onclick="volverListaCuentas()">← Volver a clientes</button>
+              <div class="toolbar" style="margin-bottom:0">
+                <button class="btn secondary" onclick="volverListaCuentas()">← Volver a clientes</button>
+                <button class="btn" onclick="descargarCuentaCorrienteClienteExcel()">Descargar cuenta en Excel</button>
+              </div>
               <h2 id="ccDetalleNombre" style="margin-top:14px;margin-bottom:4px">Cuenta corriente</h2>
               <div class="small" id="ccDetalleMeta"></div>
             </div>
@@ -996,6 +1012,17 @@ function toast(msg, tipo='', duracion=3500){
           <button class="btn" onclick="agregarCliente()">Agregar cliente</button>
         </div>
         <div class="small" style="margin-top:10px">Los datos extra son opcionales y quedan en la ficha del cliente para logística, pedidos y administración.</div>
+      </div>
+      <div class="card">
+        <div class="toolbar" style="margin-bottom:8px">
+          <input id="buscarClientes" placeholder="Buscar cliente, teléfono, localidad o CUIT..." oninput="renderClientes()" style="min-width:280px;flex:1">
+          <select id="filtroClientesVendedor" onchange="renderClientes()" title="Filtrar clientes por vendedor">
+            <option value="">Todos los vendedores</option>
+            <option value="__sin_vendedor__">Sin vendedor asignado</option>
+          </select>
+          <button class="btn success" onclick="exportarClientesExcel()">Descargar lista de clientes</button>
+        </div>
+        <div class="small">La descarga respeta la búsqueda y el vendedor seleccionado e incluye los datos de contacto y logística, sin notas internas.</div>
       </div>
       <div id="tablaClientes"></div>
       <div id="fichaClienteBox"></div>
@@ -1767,16 +1794,13 @@ function renderCuentasCorrientes(){
   set("ccClientesDeuda",r.clientesDeuda);
   set("ccSaldosFavor",money(r.saldosFavor));
   set("ccPagosRegistrados",money(r.totalPagos));
-  const q=ccNorm(document.getElementById("buscarCuentaCorriente")?.value||"");
-  const data=r.cuentas.filter(x=>{
-    const vendedor=nombreVendedorPorId(x.cliente.vendedor_id||x.cliente.vendedor_nombre||"");
-    return !q || ccNorm(`${x.cliente.nombre||""} ${vendedor} ${x.cuenta.saldo}`).includes(q);
-  }).sort((a,b)=>Number(b.cuenta.saldo||0)-Number(a.cuenta.saldo||0) || String(a.cliente.nombre||"").localeCompare(String(b.cliente.nombre||"")));
+  actualizarFiltrosExportacionVendedores();
+  const data=cuentasCorrientesFiltradas();
   const cont=document.getElementById("tablaCuentasCorrientes");
   if(!cont) return;
   cont.innerHTML=`<div class="cc-table-wrap"><table><thead><tr><th>Cliente</th><th>Saldo</th><th>Último pago</th><th>Pedidos en cuenta</th><th>Vendedor</th><th>Acción</th></tr></thead><tbody>${data.map(x=>{
     const vendedor=nombreVendedorPorId(x.cliente.vendedor_id||x.cliente.vendedor_nombre||"")||"-";
-    return `<tr><td><div class="cc-client-name">${escapeHtml(x.cliente.nombre||"")}</div><div class="cc-sub">${escapeHtml(x.cliente.telefono||"")}</div></td><td>${estadoSaldoCuentaHTML(x.cuenta.saldo)}</td><td>${x.cuenta.ultimoPago?`${ccFechaAR(x.cuenta.ultimoPago.fecha)}<div class="cc-sub">${escapeHtml(x.cuenta.ultimoPago.metodo_pago||"")}</div>`:"-"}</td><td>${x.cuenta.ordenes.length}</td><td>${escapeHtml(vendedor)}</td><td><button class="btn" onclick='abrirCuentaCliente(${JSON.stringify(x.cliente.id)})'>Ver cuenta</button></td></tr>`;
+    return `<tr><td><div class="cc-client-name">${escapeHtml(x.cliente.nombre||"")}</div><div class="cc-sub">${escapeHtml(x.cliente.telefono||"")}</div></td><td>${estadoSaldoCuentaHTML(x.cuenta.saldo)}</td><td>${x.cuenta.ultimoPago?`${ccFechaAR(x.cuenta.ultimoPago.fecha)}<div class="cc-sub">${escapeHtml(x.cuenta.ultimoPago.metodo_pago||"")}</div>`:"-"}</td><td>${x.cuenta.ordenes.length}</td><td>${escapeHtml(vendedor)}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick='abrirCuentaCliente(${JSON.stringify(x.cliente.id)})'>Ver cuenta</button><button class="btn secondary" onclick='descargarCuentaCorrienteClienteExcel(${JSON.stringify(x.cliente.id)})'>Descargar</button></div></td></tr>`;
   }).join("")}</tbody></table></div>`;
 }
 function abrirCuentaCliente(clienteId){
@@ -1817,13 +1841,7 @@ function renderCuentaCorrienteDetalle(){
   setText("ccDetalleUltimoPago",cuenta.ultimoPago?ccFechaAR(cuenta.ultimoPago.fecha):"-");
   const fechaInput=document.getElementById("ccPagoFecha"); if(fechaInput && !fechaInput.value) fechaInput.value=ccFechaInputHoy();
 
-  const tipo=document.getElementById("ccFiltroTipo")?.value||"";
-  const desde=document.getElementById("ccFiltroDesde")?.value||"";
-  const hasta=document.getElementById("ccFiltroHasta")?.value||"";
-  const movs=cuenta.movimientos.filter(m=>{
-    const ymd=ccYMD(m.fecha);
-    return (!tipo||m.tipo===tipo) && (!desde||ymd>=desde) && (!hasta||ymd<=hasta);
-  });
+  const movs=movimientosCuentaCorrienteFiltrados(cuenta);
   const cont=document.getElementById("ccMovimientos");
   if(!cont) return;
   if(!movs.length){cont.innerHTML='<div class="empty">No hay movimientos para mostrar con estos filtros.</div>';return;}
@@ -3831,9 +3849,11 @@ async function agregarCliente(){
   saveLocal(); renderAll();
 }
 function renderClientes(){
+  actualizarFiltrosExportacionVendedores();
+  const data = clientesFiltradosParaListado();
   document.getElementById("tablaClientes").innerHTML=table(
     ["Cliente","Teléfono","Domicilio","Localidad","Provincia","CP","CUIT","Desc. fijo","Vendedor","Diferido","Logística","Nota interna","Acciones"],
-    clientes.map(c=>{
+    data.map(c=>{
       const vendedorAsignado = nombreVendedorPorId(c.vendedor_id || c.vendedor_nombre || "");
       const vendedorDiferido = nombreVendedorPorId(c.vendedor_diferido_id || c.vendedor_diferido_nombre || "");
       return [
@@ -4906,6 +4926,146 @@ async function leerTablaBackup(nombre){
 function excelSafe(v){
   return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
+
+function valorFiltroVendedor(v){
+  return String(v?.id ?? v?.nombre ?? "");
+}
+function vendedorAsignadoCliente(c){
+  return vendedorPorIdONombre(c?.vendedor_id || c?.vendedor_nombre || "") || null;
+}
+function coincideFiltroVendedorCliente(c, filtro){
+  if(!filtro) return true;
+  const vendedor = vendedorAsignadoCliente(c);
+  if(filtro === "__sin_vendedor__") return !vendedor;
+  return !!vendedor && valorFiltroVendedor(vendedor) === String(filtro);
+}
+function actualizarSelectFiltroVendedor(id){
+  const sel=document.getElementById(id);
+  if(!sel) return;
+  const actual=sel.value;
+  const opciones=(vendedores||[]).filter(v=>v && v.activo!==false && v.nombre).map(v=>`<option value="${escapeHtml(valorFiltroVendedor(v))}">${escapeHtml(v.nombre)}</option>`).join("");
+  sel.innerHTML='<option value="">Todos los vendedores</option><option value="__sin_vendedor__">Sin vendedor asignado</option>'+opciones;
+  if(Array.from(sel.options).some(o=>o.value===actual)) sel.value=actual;
+}
+function actualizarFiltrosExportacionVendedores(){
+  actualizarSelectFiltroVendedor("ccFiltroVendedor");
+  actualizarSelectFiltroVendedor("filtroClientesVendedor");
+}
+function clientesFiltradosParaListado(){
+  const q=ccNorm(document.getElementById("buscarClientes")?.value||"");
+  const filtroVendedor=document.getElementById("filtroClientesVendedor")?.value||"";
+  return (clientes||[]).filter(c=>{
+    const vendedor=nombreVendedorPorId(c.vendedor_id||c.vendedor_nombre||"");
+    const texto=[c.nombre,c.telefono,c.direccion,c.localidad,c.provincia,c.codigo_postal||c.cp,c.cuit,vendedor,c.zona,c.transporte_preferido,c.tipo_cliente].filter(Boolean).join(" ");
+    return (!q || ccNorm(texto).includes(q)) && coincideFiltroVendedorCliente(c,filtroVendedor);
+  }).sort((a,b)=>String(a.nombre||"").localeCompare(String(b.nombre||""),"es"));
+}
+function cuentasCorrientesFiltradas(opciones={}){
+  const r=resumenGeneralCuentas();
+  const q=ccNorm(document.getElementById("buscarCuentaCorriente")?.value||"");
+  const filtroVendedor=document.getElementById("ccFiltroVendedor")?.value||"";
+  const filtroSaldo=opciones.forzarSaldo ?? (document.getElementById("ccFiltroSaldo")?.value||"");
+  return r.cuentas.filter(x=>{
+    const vendedor=nombreVendedorPorId(x.cliente.vendedor_id||x.cliente.vendedor_nombre||"");
+    const coincideTexto=!q || ccNorm(`${x.cliente.nombre||""} ${x.cliente.telefono||""} ${x.cliente.localidad||""} ${vendedor} ${x.cuenta.saldo}`).includes(q);
+    const coincideVendedor=coincideFiltroVendedorCliente(x.cliente,filtroVendedor);
+    const saldo=Number(x.cuenta.saldo||0);
+    const coincideSaldo=!filtroSaldo || (filtroSaldo==="deuda" && saldo>0.009) || (filtroSaldo==="al_dia" && Math.abs(saldo)<=0.009) || (filtroSaldo==="favor" && saldo<-0.009);
+    return coincideTexto && coincideVendedor && coincideSaldo;
+  }).sort((a,b)=>Number(b.cuenta.saldo||0)-Number(a.cuenta.saldo||0) || String(a.cliente.nombre||"").localeCompare(String(b.cliente.nombre||""),"es"));
+}
+function movimientosCuentaCorrienteFiltrados(cuenta){
+  const tipo=document.getElementById("ccFiltroTipo")?.value||"";
+  const desde=document.getElementById("ccFiltroDesde")?.value||"";
+  const hasta=document.getElementById("ccFiltroHasta")?.value||"";
+  return (cuenta?.movimientos||[]).filter(m=>{
+    const ymd=ccYMD(m.fecha);
+    return (!tipo||m.tipo===tipo) && (!desde||ymd>=desde) && (!hasta||ymd<=hasta);
+  });
+}
+function nombreVendedorFiltro(id){
+  const valor=document.getElementById(id)?.value||"";
+  if(!valor) return "todos";
+  if(valor==="__sin_vendedor__") return "sin_vendedor";
+  const v=(vendedores||[]).find(x=>valorFiltroVendedor(x)===String(valor));
+  return v?.nombre||"vendedor";
+}
+function slugArchivo(v){
+  return ccNorm(v||"archivo").replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"") || "archivo";
+}
+function excelTextoSeguro(v){
+  const s=String(v ?? "");
+  const protegido=/^[=+\-@]/.test(s) ? "'"+s : s;
+  return excelSafe(protegido);
+}
+function descargarHtmlExcel(nombre, contenido){
+  const html=`<!doctype html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif}h1{font-size:20px}h2{font-size:16px;margin-top:18px}table{border-collapse:collapse;margin-bottom:16px}th{background:#2094e6;color:#fff;font-weight:bold}th,td{border:1px solid #cbd5e1;padding:7px 9px;vertical-align:top}.deuda{color:#b91c1c;font-weight:bold}.favor{color:#15803d;font-weight:bold}.small{color:#64748b;font-size:12px}</style></head><body>${contenido}</body></html>`;
+  const blob=new Blob(["\ufeff",html],{type:"application/vnd.ms-excel;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=nombre.endsWith(".xls")?nombre:nombre+".xls";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function tablaExcel(headers,rows){
+  return `<table><thead><tr>${headers.map(h=>`<th>${excelTextoSeguro(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${excelTextoSeguro(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+function exportarClientesExcel(){
+  const data=clientesFiltradosParaListado();
+  if(!data.length) return toast("No hay clientes para descargar con esos filtros.","warning");
+  const headers=["Cliente / Razón social","Teléfono","Domicilio","Localidad","Provincia","Código postal","CUIT","Vendedor asignado","Vendedor diferido","% diferido","Zona / recorrido","Envío preferido","Transporte","Horario de entrega","Tipo de cliente","N° cliente / referencia","Observación logística","Descuento fijo %"];
+  const rows=data.map(c=>[
+    c.nombre||"",c.telefono||"",c.direccion||"",c.localidad||"",c.provincia||"",c.codigo_postal||c.cp||"",c.cuit||"",
+    nombreVendedorPorId(c.vendedor_id||c.vendedor_nombre||"")||"Sin vendedor",
+    nombreVendedorPorId(c.vendedor_diferido_id||c.vendedor_diferido_nombre||"")||"",
+    c.vendedor_diferido_id||c.vendedor_diferido_nombre ? Number(c.vendedor_diferido_porcentaje||5) : "",
+    c.zona||"",c.tipo_envio_preferido||"",c.transporte_preferido||"",c.horario_entrega||"",c.tipo_cliente||"",c.nro_cliente_original||"",c.observacion_logistica||"",Number(c.descuento_fijo||0)
+  ]);
+  const vendedor=nombreVendedorFiltro("filtroClientesVendedor");
+  const contenido=`<h1>Lista de clientes · Envases Devoto</h1><div class="small">Vendedor: ${excelTextoSeguro(vendedor==="todos"?"Todos":vendedor)} · Registros: ${data.length} · Exportado: ${excelTextoSeguro(new Date().toLocaleString("es-AR"))}</div>${tablaExcel(headers,rows)}`;
+  descargarHtmlExcel(`clientes_envases_devoto_${slugArchivo(vendedor)}_${ccYMD(new Date())}.xls`,contenido);
+  toast(`${data.length} cliente${data.length===1?"":"s"} descargado${data.length===1?"":"s"}.`,"success");
+}
+function estadoCuentaTexto(saldo){
+  saldo=Number(saldo||0);
+  if(saldo>0.009) return "Debe";
+  if(saldo<-0.009) return "Saldo a favor";
+  return "Al día";
+}
+function exportarCuentasCorrientesExcel(soloDeudores=false){
+  const data=cuentasCorrientesFiltradas({forzarSaldo:soloDeudores?"deuda":undefined});
+  if(!data.length) return toast(soloDeudores?"No hay clientes con deuda para descargar.":"No hay cuentas para descargar con esos filtros.","warning");
+  const headers=["Cliente","Teléfono","Domicilio","Localidad","Provincia","Vendedor","Estado","Saldo","Pedidos en cuenta","Total de pedidos","Pagos registrados","Último pago","Forma último pago"];
+  const rows=data.map(x=>{
+    const c=x.cliente, cuenta=x.cuenta;
+    return [c.nombre||"",c.telefono||"",c.direccion||"",c.localidad||"",c.provincia||"",nombreVendedorPorId(c.vendedor_id||c.vendedor_nombre||"")||"Sin vendedor",estadoCuentaTexto(cuenta.saldo),cuenta.saldo>0?money(cuenta.saldo):(cuenta.saldo<0?money(Math.abs(cuenta.saldo))+" a favor":money(0)),cuenta.ordenes.length,money(cuenta.totalPedidos),money(cuenta.totalPagos),cuenta.ultimoPago?ccFechaAR(cuenta.ultimoPago.fecha):"-",cuenta.ultimoPago?.metodo_pago||""];
+  });
+  const vendedor=nombreVendedorFiltro("ccFiltroVendedor");
+  const titulo=soloDeudores?"Clientes con deuda":"Cuentas corrientes filtradas";
+  const contenido=`<h1>${excelTextoSeguro(titulo)} · Envases Devoto</h1><div class="small">Vendedor: ${excelTextoSeguro(vendedor==="todos"?"Todos":vendedor)} · Registros: ${data.length} · Exportado: ${excelTextoSeguro(new Date().toLocaleString("es-AR"))}</div>${tablaExcel(headers,rows)}`;
+  descargarHtmlExcel(`${soloDeudores?"deudores":"cuentas_corrientes"}_envases_devoto_${slugArchivo(vendedor)}_${ccYMD(new Date())}.xls`,contenido);
+  toast(`${data.length} cuenta${data.length===1?"":"s"} descargada${data.length===1?"":"s"}.`,"success");
+}
+function descargarCuentaCorrienteClienteExcel(clienteId=null){
+  const id=clienteId!==null && clienteId!==undefined ? String(clienteId) : String(cuentaClienteIdSeleccionado||"");
+  const cliente=(clientes||[]).find(c=>String(c.id)===id);
+  if(!cliente) return toast("No encontré el cliente para descargar la cuenta.","error");
+  const cuenta=calcularCuentaCliente(cliente.id);
+  const usarFiltros=String(cuentaClienteIdSeleccionado||"")===id;
+  const movs=usarFiltros?movimientosCuentaCorrienteFiltrados(cuenta):(cuenta.movimientos||[]);
+  const vendedor=nombreVendedorPorId(cliente.vendedor_id||cliente.vendedor_nombre||"")||"Sin vendedor asignado";
+  const resumenHeaders=["Cliente","Teléfono","Domicilio","Localidad","Provincia","Vendedor","Estado actual","Saldo actual","Pedidos en cuenta","Total pedidos","Pagos registrados","Último pago"];
+  const resumenRows=[[cliente.nombre||"",cliente.telefono||"",cliente.direccion||"",cliente.localidad||"",cliente.provincia||"",vendedor,estadoCuentaTexto(cuenta.saldo),cuenta.saldo>0?money(cuenta.saldo):(cuenta.saldo<0?money(Math.abs(cuenta.saldo))+" a favor":money(0)),cuenta.ordenes.length,money(cuenta.totalPedidos),money(cuenta.totalPagos),cuenta.ultimoPago?`${ccFechaAR(cuenta.ultimoPago.fecha)} · ${cuenta.ultimoPago.metodo_pago||""}`:"-"]];
+  const movHeaders=["Fecha","Tipo","Movimiento","Detalle","Debe","Haber","Saldo acumulado"];
+  const movRows=movs.map(m=>[ccFechaAR(m.fecha),m.tipo==="pedido"?"Pedido":"Pago",m.concepto||"",m.detalle||"",m.debe?money(m.debe):"",m.haber?money(m.haber):"",m.saldo<0?money(Math.abs(m.saldo))+" a favor":money(m.saldo)]);
+  const filtros=usarFiltros?[document.getElementById("ccFiltroTipo")?.selectedOptions?.[0]?.textContent||"Todos los movimientos",document.getElementById("ccFiltroDesde")?.value?`Desde ${document.getElementById("ccFiltroDesde").value}`:"",document.getElementById("ccFiltroHasta")?.value?`Hasta ${document.getElementById("ccFiltroHasta").value}`:""].filter(Boolean).join(" · "):"Todos los movimientos";
+  const contenido=`<h1>Cuenta corriente · ${excelTextoSeguro(cliente.nombre||"")}</h1><div class="small">Filtros: ${excelTextoSeguro(filtros)} · Exportado: ${excelTextoSeguro(new Date().toLocaleString("es-AR"))}</div><h2>Resumen</h2>${tablaExcel(resumenHeaders,resumenRows)}<h2>Movimientos</h2>${movRows.length?tablaExcel(movHeaders,movRows):"<p>Sin movimientos para mostrar.</p>"}`;
+  descargarHtmlExcel(`cuenta_corriente_${slugArchivo(cliente.nombre)}_${ccYMD(new Date())}.xls`,contenido);
+  toast(`Cuenta corriente de ${cliente.nombre} descargada.`,"success");
+}
+
 function exportarPedidosExcel(){
   const dashMes = document.getElementById("dashMes");
   const mes = dashMes?.value || "";
