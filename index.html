@@ -857,7 +857,7 @@ function toast(msg, tipo='', duracion=3500){
             <div>
               <div class="toolbar" style="margin-bottom:0">
                 <button class="btn secondary" onclick="volverListaCuentas()">← Volver a clientes</button>
-                <button class="btn" onclick="descargarCuentaCorrienteClienteExcel()">Descargar cuenta en Excel</button>
+                <button class="btn" onclick="descargarCuentaCorrienteClientePDF()">Descargar cuenta en PDF</button>
               </div>
               <h2 id="ccDetalleNombre" style="margin-top:14px;margin-bottom:4px">Cuenta corriente</h2>
               <div class="small" id="ccDetalleMeta"></div>
@@ -1176,6 +1176,8 @@ function toast(msg, tipo='', duracion=3500){
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
 <script>
 
 /* ⚠️  SEGURIDAD: Las contraseñas están en texto plano en el cliente y son visibles
@@ -1800,7 +1802,7 @@ function renderCuentasCorrientes(){
   if(!cont) return;
   cont.innerHTML=`<div class="cc-table-wrap"><table><thead><tr><th>Cliente</th><th>Saldo</th><th>Último pago</th><th>Pedidos en cuenta</th><th>Vendedor</th><th>Acción</th></tr></thead><tbody>${data.map(x=>{
     const vendedor=nombreVendedorPorId(x.cliente.vendedor_id||x.cliente.vendedor_nombre||"")||"-";
-    return `<tr><td><div class="cc-client-name">${escapeHtml(x.cliente.nombre||"")}</div><div class="cc-sub">${escapeHtml(x.cliente.telefono||"")}</div></td><td>${estadoSaldoCuentaHTML(x.cuenta.saldo)}</td><td>${x.cuenta.ultimoPago?`${ccFechaAR(x.cuenta.ultimoPago.fecha)}<div class="cc-sub">${escapeHtml(x.cuenta.ultimoPago.metodo_pago||"")}</div>`:"-"}</td><td>${x.cuenta.ordenes.length}</td><td>${escapeHtml(vendedor)}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick='abrirCuentaCliente(${JSON.stringify(x.cliente.id)})'>Ver cuenta</button><button class="btn secondary" onclick='descargarCuentaCorrienteClienteExcel(${JSON.stringify(x.cliente.id)})'>Descargar</button></div></td></tr>`;
+    return `<tr><td><div class="cc-client-name">${escapeHtml(x.cliente.nombre||"")}</div><div class="cc-sub">${escapeHtml(x.cliente.telefono||"")}</div></td><td>${estadoSaldoCuentaHTML(x.cuenta.saldo)}</td><td>${x.cuenta.ultimoPago?`${ccFechaAR(x.cuenta.ultimoPago.fecha)}<div class="cc-sub">${escapeHtml(x.cuenta.ultimoPago.metodo_pago||"")}</div>`:"-"}</td><td>${x.cuenta.ordenes.length}</td><td>${escapeHtml(vendedor)}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick='abrirCuentaCliente(${JSON.stringify(x.cliente.id)})'>Ver cuenta</button><button class="btn secondary" onclick='descargarCuentaCorrienteClientePDF(${JSON.stringify(x.cliente.id)})'>Descargar PDF</button></div></td></tr>`;
   }).join("")}</tbody></table></div>`;
 }
 function abrirCuentaCliente(clienteId){
@@ -5048,22 +5050,124 @@ function exportarCuentasCorrientesExcel(soloDeudores=false){
   descargarHtmlExcel(`${soloDeudores?"deudores":"cuentas_corrientes"}_envases_devoto_${slugArchivo(vendedor)}_${ccYMD(new Date())}.xls`,contenido);
   toast(`${data.length} cuenta${data.length===1?"":"s"} descargada${data.length===1?"":"s"}.`,"success");
 }
-function descargarCuentaCorrienteClienteExcel(clienteId=null){
+function remitosCuentaCorrienteParaPDF(cuenta,usarFiltros=true){
+  const desde=usarFiltros?(document.getElementById("ccFiltroDesde")?.value||""):"";
+  const hasta=usarFiltros?(document.getElementById("ccFiltroHasta")?.value||""):"";
+  return (cuenta?.movimientos||[]).filter(m=>{
+    if(m.tipo!=="pedido") return false;
+    const ymd=ccYMD(m.fecha);
+    return (!desde||ymd>=desde) && (!hasta||ymd<=hasta);
+  });
+}
+function documentoCuentaCorrienteImprimible(cliente,remitos,totalRemitos,cuenta){
+  const saldo=Number(cuenta?.saldo||0);
+  const saldoTexto=saldo>0.009
+    ? `Saldo pendiente: ${money(saldo)}`
+    : (saldo<-0.009 ? `Saldo a favor: ${money(Math.abs(saldo))}` : `Saldo actual: ${money(0)}`);
+  const filas=remitos.length
+    ? remitos.map(m=>`<tr><td>${escapeHtml(ccFechaAR(m.fecha))}</td><td class="num">${escapeHtml(money(Number(m.debe||0)))}</td></tr>`).join("")
+    : `<tr><td colspan="2" class="empty-row">No hay remitos para mostrar en el período seleccionado.</td></tr>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Cuenta corriente · ${escapeHtml(cliente.nombre||"")}</title>
+    <style>
+      @page{size:A4 portrait;margin:14mm}
+      *{box-sizing:border-box}
+      body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;background:#fff;font-size:12px}
+      .sheet{max-width:760px;margin:0 auto}
+      .header{border-bottom:3px solid #2094e6;padding-bottom:12px;margin-bottom:18px}
+      .brand{font-size:11px;font-weight:900;letter-spacing:1.2px;color:#2094e6;text-transform:uppercase}
+      h1{font-size:23px;margin:5px 0 0}
+      .client{font-size:16px;font-weight:900;margin-top:7px}
+      .date{font-size:10px;color:#64748b;margin-top:4px}
+      table{width:100%;border-collapse:collapse;margin-top:8px}
+      th{background:#2094e6;color:#fff;text-align:left;padding:10px;border:1px solid #dbe4ef}
+      td{padding:10px;border:1px solid #dbe4ef}
+      .num{text-align:right;font-weight:800;white-space:nowrap}
+      .empty-row{text-align:center;color:#64748b;padding:22px}
+      .summary{width:310px;margin:14px 0 0 auto;border-collapse:collapse}
+      .summary td{font-weight:800}
+      .summary tr:last-child td{font-size:14px;background:#f6f9fd}
+      .no-print{text-align:right;margin-bottom:12px}
+      .print-btn{border:0;background:#2094e6;color:#fff;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer}
+      @media print{.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    </style></head><body><div class="sheet">
+      <div class="no-print"><button class="print-btn" onclick="window.print()">Guardar como PDF</button></div>
+      <div class="header"><div class="brand">Envases Devoto</div><h1>Cuenta corriente</h1><div class="client">${escapeHtml(cliente.nombre||"")}</div><div class="date">Generado el ${escapeHtml(new Date().toLocaleString("es-AR"))}</div></div>
+      <table><thead><tr><th>Fecha del remito</th><th style="text-align:right">Monto</th></tr></thead><tbody>${filas}</tbody></table>
+      <table class="summary"><tbody><tr><td>Total de remitos</td><td class="num">${escapeHtml(money(totalRemitos))}</td></tr><tr><td>${escapeHtml(saldoTexto.split(":")[0])}</td><td class="num">${escapeHtml(saldoTexto.split(":").slice(1).join(":").trim())}</td></tr></tbody></table>
+    </div></body></html>`;
+}
+function descargarCuentaCorrienteClientePDF(clienteId=null){
   const id=clienteId!==null && clienteId!==undefined ? String(clienteId) : String(cuentaClienteIdSeleccionado||"");
   const cliente=(clientes||[]).find(c=>String(c.id)===id);
   if(!cliente) return toast("No encontré el cliente para descargar la cuenta.","error");
+
   const cuenta=calcularCuentaCliente(cliente.id);
   const usarFiltros=String(cuentaClienteIdSeleccionado||"")===id;
-  const movs=usarFiltros?movimientosCuentaCorrienteFiltrados(cuenta):(cuenta.movimientos||[]);
-  const vendedor=nombreVendedorPorId(cliente.vendedor_id||cliente.vendedor_nombre||"")||"Sin vendedor asignado";
-  const resumenHeaders=["Cliente","Teléfono","Domicilio","Localidad","Provincia","Vendedor","Estado actual","Saldo actual","Pedidos en cuenta","Total pedidos","Pagos registrados","Último pago"];
-  const resumenRows=[[cliente.nombre||"",cliente.telefono||"",cliente.direccion||"",cliente.localidad||"",cliente.provincia||"",vendedor,estadoCuentaTexto(cuenta.saldo),cuenta.saldo>0?money(cuenta.saldo):(cuenta.saldo<0?money(Math.abs(cuenta.saldo))+" a favor":money(0)),cuenta.ordenes.length,money(cuenta.totalPedidos),money(cuenta.totalPagos),cuenta.ultimoPago?`${ccFechaAR(cuenta.ultimoPago.fecha)} · ${cuenta.ultimoPago.metodo_pago||""}`:"-"]];
-  const movHeaders=["Fecha","Tipo","Movimiento","Detalle","Debe","Haber","Saldo acumulado"];
-  const movRows=movs.map(m=>[ccFechaAR(m.fecha),m.tipo==="pedido"?"Pedido":"Pago",m.concepto||"",m.detalle||"",m.debe?money(m.debe):"",m.haber?money(m.haber):"",m.saldo<0?money(Math.abs(m.saldo))+" a favor":money(m.saldo)]);
-  const filtros=usarFiltros?[document.getElementById("ccFiltroTipo")?.selectedOptions?.[0]?.textContent||"Todos los movimientos",document.getElementById("ccFiltroDesde")?.value?`Desde ${document.getElementById("ccFiltroDesde").value}`:"",document.getElementById("ccFiltroHasta")?.value?`Hasta ${document.getElementById("ccFiltroHasta").value}`:""].filter(Boolean).join(" · "):"Todos los movimientos";
-  const contenido=`<h1>Cuenta corriente · ${excelTextoSeguro(cliente.nombre||"")}</h1><div class="small">Filtros: ${excelTextoSeguro(filtros)} · Exportado: ${excelTextoSeguro(new Date().toLocaleString("es-AR"))}</div><h2>Resumen</h2>${tablaExcel(resumenHeaders,resumenRows)}<h2>Movimientos</h2>${movRows.length?tablaExcel(movHeaders,movRows):"<p>Sin movimientos para mostrar.</p>"}`;
-  descargarHtmlExcel(`cuenta_corriente_${slugArchivo(cliente.nombre)}_${ccYMD(new Date())}.xls`,contenido);
-  toast(`Cuenta corriente de ${cliente.nombre} descargada.`,"success");
+  const remitos=remitosCuentaCorrienteParaPDF(cuenta,usarFiltros);
+  const totalRemitos=remitos.reduce((s,m)=>s+Math.max(0,Number(m.debe||0)),0);
+  const nombreArchivo=`cuenta_corriente_${slugArchivo(cliente.nombre)}_${ccYMD(new Date())}.pdf`;
+  const jsPDFClass=window.jspdf?.jsPDF;
+
+  // Si el CDN no cargó, se abre una versión imprimible para guardarla igualmente como PDF.
+  if(!jsPDFClass){
+    toast("No se pudo cargar el generador directo. Se abrirá la versión para guardar como PDF.","warning",5000);
+    return abrirDocumentoImprimible("Cuenta corriente",documentoCuentaCorrienteImprimible(cliente,remitos,totalRemitos,cuenta));
+  }
+
+  try{
+    const doc=new jsPDFClass({orientation:"portrait",unit:"mm",format:"a4"});
+    const saldo=Number(cuenta.saldo||0);
+    const saldoEtiqueta=saldo>0.009 ? "Saldo pendiente" : (saldo<-0.009 ? "Saldo a favor" : "Saldo actual");
+    const saldoImporte=money(Math.abs(saldo));
+
+    doc.setTextColor(32,148,230);
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(10);
+    doc.text("ENVASES DEVOTO",14,15);
+
+    doc.setTextColor(15,23,42);
+    doc.setFontSize(20);
+    doc.text("Cuenta corriente",14,25);
+    doc.setFontSize(13);
+    doc.text(`Cliente: ${String(cliente.nombre||"")}`,14,34);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(9);
+    doc.setTextColor(100,116,139);
+    doc.text(`Generado el ${new Date().toLocaleString("es-AR")}`,14,40);
+
+    const filas=remitos.map(m=>[ccFechaAR(m.fecha),money(Number(m.debe||0))]);
+    doc.autoTable({
+      startY:46,
+      head:[["Fecha del remito","Monto"]],
+      body:filas.length?filas:[["Sin remitos en el período seleccionado",""]],
+      theme:"grid",
+      styles:{font:"helvetica",fontSize:10,cellPadding:3.5,textColor:[15,23,42],lineColor:[219,228,239],lineWidth:.2},
+      headStyles:{fillColor:[32,148,230],textColor:[255,255,255],fontStyle:"bold"},
+      columnStyles:{1:{halign:"right",cellWidth:48}},
+      margin:{left:14,right:14}
+    });
+
+    let y=(doc.lastAutoTable?.finalY||50)+9;
+    if(y>274){doc.addPage();y=20;}
+    doc.setDrawColor(219,228,239);
+    doc.setFillColor(246,249,253);
+    doc.roundedRect(105,y-5,90,21,2,2,"FD");
+    doc.setTextColor(15,23,42);
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(10);
+    doc.text("Total de remitos",110,y+2);
+    doc.text(money(totalRemitos),190,y+2,{align:"right"});
+    doc.setFontSize(11);
+    doc.text(saldoEtiqueta,110,y+10);
+    doc.text(saldoImporte,190,y+10,{align:"right"});
+
+    doc.save(nombreArchivo);
+    toast(`Cuenta corriente de ${cliente.nombre} descargada en PDF.`,"success");
+  }catch(e){
+    console.error("Error generando PDF de cuenta corriente",e);
+    toast("No se pudo generar el PDF directo. Se abrirá la versión para guardar como PDF.","warning",5000);
+    abrirDocumentoImprimible("Cuenta corriente",documentoCuentaCorrienteImprimible(cliente,remitos,totalRemitos,cuenta));
+  }
 }
 
 function exportarPedidosExcel(){
