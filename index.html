@@ -844,9 +844,9 @@ function toast(msg, tipo='', duracion=3500){
             </select>
             <button class="btn secondary" onclick="renderCuentasCorrientes()">Actualizar</button>
             <button class="btn" onclick="exportarCuentasCorrientesExcel(false)">Descargar cuentas filtradas</button>
-            <button class="btn success" onclick="exportarCuentasCorrientesExcel(true)">Descargar deudores</button>
+            <button class="btn success" onclick="descargarDeudoresPDF()">Descargar deudores PDF</button>
           </div>
-          <div class="small" style="margin-bottom:12px">Las descargas respetan la búsqueda y el vendedor seleccionado. “Descargar deudores” incluye únicamente clientes con saldo pendiente.</div>
+          <div class="small" style="margin-bottom:12px">Las descargas respetan la búsqueda y el vendedor seleccionado. El PDF de deudores incluye únicamente los remitos con saldo pendiente y muestra cliente, vendedor, N.º de remito, fecha del pedido e importe pendiente.</div>
           <div id="tablaCuentasCorrientes"></div>
         </div>
       </div>
@@ -5050,6 +5050,141 @@ function exportarCuentasCorrientesExcel(soloDeudores=false){
   descargarHtmlExcel(`${soloDeudores?"deudores":"cuentas_corrientes"}_envases_devoto_${slugArchivo(vendedor)}_${ccYMD(new Date())}.xls`,contenido);
   toast(`${data.length} cuenta${data.length===1?"":"s"} descargada${data.length===1?"":"s"}.`,"success");
 }
+
+function filasDeudoresParaPDF(){
+  const cuentas=cuentasCorrientesFiltradas({forzarSaldo:"deuda"});
+  const filas=[];
+
+  cuentas.forEach(x=>{
+    const cliente=x.cliente||{};
+    const cuenta=x.cuenta||{};
+    const vendedor=nombreVendedorPorId(cliente.vendedor_id||cliente.vendedor_nombre||"")||"Sin vendedor";
+
+    (cuenta.ordenes||[]).forEach(p=>{
+      const asignacion=cuenta.asignaciones?.[String(p.id)]||{};
+      const pendiente=Math.max(0,Number(asignacion.pendiente||0));
+      if(pendiente<=0.009) return;
+
+      filas.push({
+        cliente:cliente.nombre||"",
+        vendedor,
+        remito:p.id??"",
+        fecha:p.fecha||fechaMovimientoPedido(p),
+        pendiente
+      });
+    });
+  });
+
+  return filas.sort((a,b)=>
+    String(a.vendedor||"").localeCompare(String(b.vendedor||""),"es") ||
+    String(a.cliente||"").localeCompare(String(b.cliente||""),"es") ||
+    new Date(a.fecha||0)-new Date(b.fecha||0) ||
+    Number(a.remito||0)-Number(b.remito||0)
+  );
+}
+function documentoDeudoresImprimible(filas){
+  const vendedor=nombreVendedorFiltro("ccFiltroVendedor");
+  const vendedorTexto=vendedor==="todos"?"Todos":vendedor;
+  const busqueda=String(document.getElementById("buscarCuentaCorriente")?.value||"").trim();
+  const totalPendiente=filas.reduce((s,f)=>s+Number(f.pendiente||0),0);
+  const cuerpo=filas.map(f=>`<tr><td>${escapeHtml(f.cliente)}</td><td>${escapeHtml(f.vendedor)}</td><td class="center">#${escapeHtml(String(f.remito))}</td><td class="center">${escapeHtml(ccFechaAR(f.fecha))}</td><td class="num">${escapeHtml(money(f.pendiente))}</td></tr>`).join("");
+  const filtroBusqueda=busqueda?` · Búsqueda: ${escapeHtml(busqueda)}`:"";
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Clientes deudores · Envases Devoto</title>
+    <style>
+      @page{size:A4 landscape;margin:12mm}
+      *{box-sizing:border-box}
+      body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:0;background:#fff;font-size:11px}
+      .sheet{max-width:1100px;margin:0 auto}
+      .header{border-bottom:3px solid #2094e6;padding-bottom:10px;margin-bottom:14px}
+      .brand{font-size:10px;font-weight:900;letter-spacing:1.2px;color:#2094e6;text-transform:uppercase}
+      h1{font-size:22px;margin:5px 0 0}
+      .meta{font-size:10px;color:#64748b;margin-top:5px}
+      table{width:100%;border-collapse:collapse;margin-top:8px}
+      th{background:#2094e6;color:#fff;text-align:left;padding:9px;border:1px solid #dbe4ef}
+      td{padding:8px 9px;border:1px solid #dbe4ef}
+      .center{text-align:center;white-space:nowrap}
+      .num{text-align:right;font-weight:800;white-space:nowrap}
+      tfoot td{background:#f6f9fd;font-size:12px;font-weight:900}
+      tr{break-inside:avoid}
+      .no-print{text-align:right;margin-bottom:10px}
+      .print-btn{border:0;background:#2094e6;color:#fff;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer}
+      @media print{.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    </style></head><body><div class="sheet">
+      <div class="no-print"><button class="print-btn" onclick="window.print()">Guardar como PDF</button></div>
+      <div class="header"><div class="brand">Envases Devoto</div><h1>Clientes deudores</h1><div class="meta">Vendedor: ${escapeHtml(vendedorTexto)}${filtroBusqueda} · Generado el ${escapeHtml(new Date().toLocaleString("es-AR"))}</div></div>
+      <table><thead><tr><th>Cliente deudor</th><th>Vendedor</th><th style="text-align:center">N.º de remito</th><th style="text-align:center">Fecha del pedido</th><th style="text-align:right">Importe pendiente</th></tr></thead><tbody>${cuerpo}</tbody><tfoot><tr><td colspan="4" style="text-align:right">Total pendiente</td><td class="num">${escapeHtml(money(totalPendiente))}</td></tr></tfoot></table>
+    </div></body></html>`;
+}
+function descargarDeudoresPDF(){
+  const filas=filasDeudoresParaPDF();
+  if(!filas.length) return toast("No hay remitos con saldo pendiente para descargar con esos filtros.","warning");
+
+  const vendedor=nombreVendedorFiltro("ccFiltroVendedor");
+  const vendedorTexto=vendedor==="todos"?"Todos":vendedor;
+  const busqueda=String(document.getElementById("buscarCuentaCorriente")?.value||"").trim();
+  const totalPendiente=filas.reduce((s,f)=>s+Number(f.pendiente||0),0);
+  const nombreArchivo=`deudores_envases_devoto_${slugArchivo(vendedor)}_${ccYMD(new Date())}.pdf`;
+  const jsPDFClass=window.jspdf?.jsPDF;
+
+  if(!jsPDFClass){
+    toast("No se pudo cargar el generador directo. Se abrirá la versión para guardar como PDF.","warning",5000);
+    return abrirDocumentoImprimible("Clientes deudores",documentoDeudoresImprimible(filas));
+  }
+
+  try{
+    const doc=new jsPDFClass({orientation:"landscape",unit:"mm",format:"a4"});
+
+    doc.setTextColor(32,148,230);
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(10);
+    doc.text("ENVASES DEVOTO",14,14);
+
+    doc.setTextColor(15,23,42);
+    doc.setFontSize(20);
+    doc.text("Clientes deudores",14,24);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(9);
+    doc.setTextColor(100,116,139);
+    const meta=[`Vendedor: ${vendedorTexto}`,busqueda?`Búsqueda: ${busqueda}`:"",`Generado el ${new Date().toLocaleString("es-AR")}`].filter(Boolean).join(" · ");
+    doc.text(meta,14,31);
+
+    doc.autoTable({
+      startY:37,
+      head:[["Cliente deudor","Vendedor","N.º de remito","Fecha del pedido","Importe pendiente"]],
+      body:filas.map(f=>[f.cliente,f.vendedor,`#${String(f.remito)}`,ccFechaAR(f.fecha),money(f.pendiente)]),
+      foot:[["","","","Total pendiente",money(totalPendiente)]],
+      showFoot:"lastPage",
+      theme:"grid",
+      styles:{font:"helvetica",fontSize:9,cellPadding:3,textColor:[15,23,42],lineColor:[219,228,239],lineWidth:.2,overflow:"linebreak"},
+      headStyles:{fillColor:[32,148,230],textColor:[255,255,255],fontStyle:"bold"},
+      footStyles:{fillColor:[246,249,253],textColor:[15,23,42],fontStyle:"bold"},
+      columnStyles:{
+        0:{cellWidth:72},
+        1:{cellWidth:52},
+        2:{halign:"center",cellWidth:31},
+        3:{halign:"center",cellWidth:38},
+        4:{halign:"right",cellWidth:43}
+      },
+      margin:{left:14,right:14,bottom:14},
+      didDrawPage:data=>{
+        const pagina=doc.internal.getNumberOfPages();
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(8);
+        doc.setTextColor(100,116,139);
+        doc.text(`Página ${pagina}`,283,202,{align:"right"});
+      }
+    });
+
+    doc.save(nombreArchivo);
+    toast(`${filas.length} remito${filas.length===1?"":"s"} pendiente${filas.length===1?"":"s"} descargado${filas.length===1?"":"s"} en PDF.`,"success");
+  }catch(e){
+    console.error("Error generando PDF de deudores",e);
+    toast("No se pudo generar el PDF directo. Se abrirá la versión para guardar como PDF.","warning",5000);
+    abrirDocumentoImprimible("Clientes deudores",documentoDeudoresImprimible(filas));
+  }
+}
+
 function remitosCuentaCorrienteParaPDF(cuenta,usarFiltros=true){
   const desde=usarFiltros?(document.getElementById("ccFiltroDesde")?.value||""):"";
   const hasta=usarFiltros?(document.getElementById("ccFiltroHasta")?.value||""):"";
