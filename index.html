@@ -5065,8 +5065,8 @@ function documentoCuentaCorrienteImprimible(cliente,remitos,totalRemitos,cuenta)
     ? `Saldo pendiente: ${money(saldo)}`
     : (saldo<-0.009 ? `Saldo a favor: ${money(Math.abs(saldo))}` : `Saldo actual: ${money(0)}`);
   const filas=remitos.length
-    ? remitos.map(m=>`<tr><td>${escapeHtml(ccFechaAR(m.fecha))}</td><td class="num">${escapeHtml(money(Number(m.debe||0)))}</td></tr>`).join("")
-    : `<tr><td colspan="2" class="empty-row">No hay remitos para mostrar en el período seleccionado.</td></tr>`;
+    ? remitos.map(m=>`<tr><td style="text-align:center;font-weight:800">#${escapeHtml(String(m.pedido_id||""))}</td><td>${escapeHtml(ccFechaAR(m.fecha))}</td><td class="num">${escapeHtml(money(Number(m.debe||0)))}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="empty-row">No hay remitos para mostrar en el período seleccionado.</td></tr>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Cuenta corriente · ${escapeHtml(cliente.nombre||"")}</title>
     <style>
       @page{size:A4 portrait;margin:14mm}
@@ -5092,7 +5092,7 @@ function documentoCuentaCorrienteImprimible(cliente,remitos,totalRemitos,cuenta)
     </style></head><body><div class="sheet">
       <div class="no-print"><button class="print-btn" onclick="window.print()">Guardar como PDF</button></div>
       <div class="header"><div class="brand">Envases Devoto</div><h1>Cuenta corriente</h1><div class="client">${escapeHtml(cliente.nombre||"")}</div><div class="date">Generado el ${escapeHtml(new Date().toLocaleString("es-AR"))}</div></div>
-      <table><thead><tr><th>Fecha del remito</th><th style="text-align:right">Monto</th></tr></thead><tbody>${filas}</tbody></table>
+      <table><thead><tr><th style="text-align:center">N.º de remito</th><th>Fecha del remito</th><th style="text-align:right">Monto</th></tr></thead><tbody>${filas}</tbody></table>
       <table class="summary"><tbody><tr><td>Total de remitos</td><td class="num">${escapeHtml(money(totalRemitos))}</td></tr><tr><td>${escapeHtml(saldoTexto.split(":")[0])}</td><td class="num">${escapeHtml(saldoTexto.split(":").slice(1).join(":").trim())}</td></tr></tbody></table>
     </div></body></html>`;
 }
@@ -5135,15 +5135,15 @@ function descargarCuentaCorrienteClientePDF(clienteId=null){
     doc.setTextColor(100,116,139);
     doc.text(`Generado el ${new Date().toLocaleString("es-AR")}`,14,40);
 
-    const filas=remitos.map(m=>[ccFechaAR(m.fecha),money(Number(m.debe||0))]);
+    const filas=remitos.map(m=>[`#${String(m.pedido_id||"")}`,ccFechaAR(m.fecha),money(Number(m.debe||0))]);
     doc.autoTable({
       startY:46,
-      head:[["Fecha del remito","Monto"]],
-      body:filas.length?filas:[["Sin remitos en el período seleccionado",""]],
+      head:[["N.º de remito","Fecha del remito","Monto"]],
+      body:filas.length?filas:[["Sin remitos en el período seleccionado","",""]],
       theme:"grid",
       styles:{font:"helvetica",fontSize:10,cellPadding:3.5,textColor:[15,23,42],lineColor:[219,228,239],lineWidth:.2},
       headStyles:{fillColor:[32,148,230],textColor:[255,255,255],fontStyle:"bold"},
-      columnStyles:{1:{halign:"right",cellWidth:48}},
+      columnStyles:{0:{halign:"center",cellWidth:38},2:{halign:"right",cellWidth:48}},
       margin:{left:14,right:14}
     });
 
