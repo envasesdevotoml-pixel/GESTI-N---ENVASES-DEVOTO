@@ -5227,7 +5227,7 @@ function documentoCuentaCorrienteImprimible(cliente,remitos,totalRemitos,cuenta)
     </style></head><body><div class="sheet">
       <div class="no-print"><button class="print-btn" onclick="window.print()">Guardar como PDF</button></div>
       <div class="header"><div class="brand">Envases Devoto</div><h1>Cuenta corriente</h1><div class="client">${escapeHtml(cliente.nombre||"")}</div><div class="date">Generado el ${escapeHtml(new Date().toLocaleString("es-AR"))}</div></div>
-      <table><thead><tr><th style="text-align:center">N.º de remito</th><th>Fecha del remito</th><th style="text-align:right">Monto</th></tr></thead><tbody>${filas}</tbody></table>
+      <table><thead><tr><th style="text-align:center">N.º de remito</th><th>Fecha de entrega</th><th style="text-align:right">Monto</th></tr></thead><tbody>${filas}</tbody></table>
       <table class="summary"><tbody><tr><td>Total de remitos</td><td class="num">${escapeHtml(money(totalRemitos))}</td></tr><tr><td>${escapeHtml(saldoTexto.split(":")[0])}</td><td class="num">${escapeHtml(saldoTexto.split(":").slice(1).join(":").trim())}</td></tr></tbody></table>
     </div></body></html>`;
 }
@@ -5273,7 +5273,7 @@ function descargarCuentaCorrienteClientePDF(clienteId=null){
     const filas=remitos.map(m=>[`#${String(m.pedido_id||"")}`,ccFechaAR(m.fecha),money(Number(m.debe||0))]);
     doc.autoTable({
       startY:46,
-      head:[["N.º de remito","Fecha del remito","Monto"]],
+      head:[["N.º de remito","Fecha de entrega","Monto"]],
       body:filas.length?filas:[["Sin remitos en el período seleccionado","",""]],
       theme:"grid",
       styles:{font:"helvetica",fontSize:10,cellPadding:3.5,textColor:[15,23,42],lineColor:[219,228,239],lineWidth:.2},
