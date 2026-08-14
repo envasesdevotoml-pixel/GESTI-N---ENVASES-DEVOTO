@@ -1579,6 +1579,13 @@ function table(headers,rows){
 /* ===== Cuenta corriente / cobranza FIFO ===== */
 let ccCacheCuentas = new Map();
 function ccInvalidarCache(){ ccCacheCuentas.clear(); }
+// La interfaz muestra importes en pesos enteros. La cuenta corriente usa el mismo
+// criterio para evitar casos como “Falta $0” pero estado “Parcial” por centavos ocultos.
+function ccPesos(v){
+  const n = Number(v||0);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+function ccMontoPositivo(v){ return Math.max(0, ccPesos(v)); }
 function ccNorm(v){
   return String(v ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 }
@@ -1607,14 +1614,14 @@ function pedidoParticipaCuenta(p){
   // ya imputados no se convierten erróneamente en saldo a favor.
   const estado = String(p?.estado||"");
   const cobroEstado = String(p?.cobro_estado||"");
-  const cubierto = Number(p?.cobro_cubierto||0);
-  return ["Entregado","Cobrado"].includes(estado) || !!p?.fecha_entregado || cubierto > 0.009 || ["Parcial","Cobrado"].includes(cobroEstado);
+  const cubierto = ccMontoPositivo(p?.cobro_cubierto||0);
+  return ["Entregado","Cobrado"].includes(estado) || !!p?.fecha_entregado || cubierto > 0 || ["Parcial","Cobrado"].includes(cobroEstado);
 }
 function pedidoCobradoHistorico(p){
-  const total = Math.max(0,Number(p?.total||0));
+  const total = ccMontoPositivo(p?.total||0);
   const tieneFechaNueva = !!p?.fecha_cobrado;
-  const cubierto = Number(p?.cobro_cubierto||0);
-  const cobroMarcado = String(p?.cobro_estado||"") === "Cobrado" && cubierto >= Math.max(0,total-0.009);
+  const cubierto = ccMontoPositivo(p?.cobro_cubierto||0);
+  const cobroMarcado = String(p?.cobro_estado||"") === "Cobrado" && cubierto >= total;
   // Compatibilidad con pedidos que ya estaban cobrados antes de crear pagos_clientes.
   // También se conserva si el usuario cambia luego su estado operativo.
   const legadoPorEstado = String(p?.estado||"") === "Cobrado" && !tieneFechaNueva && !cobroMarcado;
@@ -1637,13 +1644,13 @@ function calcularCuentaCliente(clienteId){
   if(ccCacheCuentas.has(cacheKey)) return ccCacheCuentas.get(cacheKey);
   const ordenes = pedidosDeCuentaCliente(clienteId);
   const pagos = pagosDeCliente(clienteId).slice().sort((a,b)=>new Date(a.fecha||0)-new Date(b.fecha||0) || Number(a.id||0)-Number(b.id||0));
-  let disponible = pagos.reduce((a,x)=>a+Math.max(0,Number(x.importe||0)),0);
+  let disponible = pagos.reduce((a,x)=>a+ccMontoPositivo(x.importe||0),0);
   const asignaciones = {};
   let totalPedidos = 0;
   let totalHistoricoCubierto = 0;
 
   ordenes.forEach(p=>{
-    const total = Math.max(0,Number(p.total||0));
+    const total = ccMontoPositivo(p.total||0);
     totalPedidos += total;
     if(pedidoCobradoHistorico(p)){
       asignaciones[String(p.id)] = {total, cubierto:total, pendiente:0, estado:"Cobrado", historico:true};
@@ -1657,7 +1664,7 @@ function calcularCuentaCliente(clienteId){
     asignaciones[String(p.id)] = {total,cubierto,pendiente,estado,historico:false};
   });
 
-  const totalPagos = pagos.reduce((a,x)=>a+Math.max(0,Number(x.importe||0)),0);
+  const totalPagos = pagos.reduce((a,x)=>a+ccMontoPositivo(x.importe||0),0);
   const saldoPedidos = Object.values(asignaciones).reduce((a,x)=>a+Number(x.pendiente||0),0);
   const saldo = saldoPedidos - disponible;
 
@@ -1707,14 +1714,18 @@ function calcularCuentaCliente(clienteId){
   return resultado;
 }
 function infoCobranzaPedido(p){
-  if(!pedidoParticipaCuenta(p)) return {total:Number(p?.total||0),cubierto:0,pendiente:0,estado:"No aplica",historico:false};
+  const totalVisible = ccMontoPositivo(p?.total||0);
+  if(!pedidoParticipaCuenta(p)) return {total:totalVisible,cubierto:0,pendiente:0,estado:"No aplica",historico:false};
   const cid = clienteIdPedido(p);
   if(!cid){
-    const total=Number(p?.total||0);
+    const total=totalVisible;
     if(pedidoCobradoHistorico(p)) return {total,cubierto:total,pendiente:0,estado:"Cobrado",historico:true};
-    return {total,cubierto:Number(p?.cobro_cubierto||0),pendiente:Math.max(0,total-Number(p?.cobro_cubierto||0)),estado:p?.cobro_estado||"Pendiente",historico:false};
+    const cubierto=Math.min(total,ccMontoPositivo(p?.cobro_cubierto||0));
+    const pendiente=Math.max(0,total-cubierto);
+    const estado=pendiente===0 ? "Cobrado" : (cubierto>0 ? "Parcial" : "Pendiente");
+    return {total,cubierto,pendiente,estado,historico:false};
   }
-  return calcularCuentaCliente(cid).asignaciones[String(p.id)] || {total:Number(p.total||0),cubierto:0,pendiente:Number(p.total||0),estado:"Pendiente",historico:false};
+  return calcularCuentaCliente(cid).asignaciones[String(p.id)] || {total:totalVisible,cubierto:0,pendiente:totalVisible,estado:"Pendiente",historico:false};
 }
 function badgeCobranzaPedidoHTML(p){
   const a = infoCobranzaPedido(p);
@@ -1739,6 +1750,9 @@ function estadoSaldoCuentaHTML(saldo){
 }
 async function recalcularCobranzaCliente(clienteId, persistir=true){
   if(clienteId===null || clienteId===undefined || String(clienteId)==="") return;
+  // Un pago, una edición o una eliminación puede haber cambiado la cuenta desde
+  // el último render. Eliminamos solo el cache de este cliente antes de recalcular.
+  ccCacheCuentas.delete(String(clienteId));
   const cuenta = calcularCuentaCliente(clienteId);
   const cambios = [];
   cuenta.ordenes.forEach(p=>{
