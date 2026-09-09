@@ -959,7 +959,7 @@ function toast(msg, tipo='', duracion=3500){
             <button class="btn" onclick="exportarCuentasCorrientesExcel(false)">Descargar cuentas filtradas</button>
             <button class="btn success" onclick="descargarDeudoresPDF()">Descargar deudores PDF</button>
           </div>
-          <div class="small" style="margin-bottom:12px">Las descargas respetan la búsqueda y el vendedor seleccionado. El PDF de deudores incluye únicamente los remitos con saldo pendiente y muestra cliente, vendedor, N.º de remito, fecha del pedido e importe pendiente.</div>
+          <div class="small" style="margin-bottom:12px">Las descargas respetan la búsqueda y el vendedor seleccionado. El PDF de deudores incluye únicamente los remitos con saldo pendiente y muestra cliente, vendedor, N.º de remito, fecha de entrega e importe pendiente.</div>
           <div id="tablaCuentasCorrientes"></div>
         </div>
       </div>
@@ -1976,7 +1976,7 @@ function renderCuentaCorrienteDetalle(){
   const cont=document.getElementById("ccMovimientos");
   if(!cont) return;
   if(!movs.length){cont.innerHTML='<div class="empty">No hay movimientos para mostrar con estos filtros.</div>';return;}
-  cont.innerHTML=`<div class="cc-table-wrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Debe</th><th>Haber</th><th>Saldo</th><th>Acciones</th></tr></thead><tbody>${movs.map(m=>`<tr class="${m.tipo==="pedido"?"cc-movement-order":"cc-movement-payment"}"><td>${ccFechaAR(m.fecha)}</td><td><div class="cc-concept">${escapeHtml(m.concepto)}</div><div class="cc-sub">${escapeHtml(m.detalle||"")}</div></td><td class="cc-debe">${m.debe?money(m.debe):"-"}</td><td class="cc-haber">${m.haber?money(m.haber):"-"}</td><td class="cc-running">${m.saldo<0?`${money(Math.abs(m.saldo))} a favor`:money(m.saldo)}</td><td>${m.tipo==="pago"?`<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn tiny secondary" onclick='editarPagoCliente(${JSON.stringify(m.pago_id)})'>Editar</button><button class="btn tiny danger" onclick='eliminarPagoCliente(${JSON.stringify(m.pago_id)})'>Eliminar</button></div>`:"-"}</td></tr>`).join("")}</tbody></table></div>`;
+  cont.innerHTML=`<div class="cc-table-wrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Debe</th><th>Haber</th><th>Saldo</th><th>Acciones</th></tr></thead><tbody>${movs.map(m=>`<tr class="${m.tipo==="pedido"?"cc-movement-order":"cc-movement-payment"}"><td>${ccFechaAR(m.tipo==="pedido" ? m.fecha_entregado : m.fecha)}</td><td><div class="cc-concept">${escapeHtml(m.concepto)}</div><div class="cc-sub">${escapeHtml(m.detalle||"")}</div></td><td class="cc-debe">${m.debe?money(m.debe):"-"}</td><td class="cc-haber">${m.haber?money(m.haber):"-"}</td><td class="cc-running">${m.saldo<0?`${money(Math.abs(m.saldo))} a favor`:money(m.saldo)}</td><td>${m.tipo==="pago"?`<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn tiny secondary" onclick='editarPagoCliente(${JSON.stringify(m.pago_id)})'>Editar</button><button class="btn tiny danger" onclick='eliminarPagoCliente(${JSON.stringify(m.pago_id)})'>Eliminar</button></div>`:"-"}</td></tr>`).join("")}</tbody></table></div>`;
 }
 function limpiarFormularioPagoCliente(){
   ccPagoEditandoId = null;
@@ -5049,7 +5049,7 @@ function filasDeudoresParaPDF(){
         cliente:cliente.nombre||"",
         vendedor,
         remito:p.id??"",
-        fecha:p.fecha||fechaMovimientoPedido(p),
+        fecha:p.fecha_entregado||"",
         pendiente
       });
     });
@@ -5093,7 +5093,7 @@ function documentoDeudoresImprimible(filas){
     </style></head><body><div class="sheet">
       <div class="no-print"><button class="print-btn" onclick="window.print()">Guardar como PDF</button></div>
       <div class="header"><div class="brand">Envases Devoto</div><h1>Clientes deudores</h1><div class="meta">Vendedor: ${escapeHtml(vendedorTexto)}${filtroBusqueda} · Generado el ${escapeHtml(new Date().toLocaleString("es-AR"))}</div></div>
-      <table><thead><tr><th>Cliente deudor</th><th>Vendedor</th><th style="text-align:center">N.º de remito</th><th style="text-align:center">Fecha del pedido</th><th style="text-align:right">Importe pendiente</th></tr></thead><tbody>${cuerpo}</tbody><tfoot><tr><td colspan="4" style="text-align:right">Total pendiente</td><td class="num">${escapeHtml(money(totalPendiente))}</td></tr></tfoot></table>
+      <table><thead><tr><th>Cliente deudor</th><th>Vendedor</th><th style="text-align:center">N.º de remito</th><th style="text-align:center">Fecha de entrega</th><th style="text-align:right">Importe pendiente</th></tr></thead><tbody>${cuerpo}</tbody><tfoot><tr><td colspan="4" style="text-align:right">Total pendiente</td><td class="num">${escapeHtml(money(totalPendiente))}</td></tr></tfoot></table>
     </div></body></html>`;
 }
 function descargarDeudoresPDF(){
@@ -5131,7 +5131,7 @@ function descargarDeudoresPDF(){
 
     doc.autoTable({
       startY:37,
-      head:[["Cliente deudor","Vendedor","N.º de remito","Fecha del pedido","Importe pendiente"]],
+      head:[["Cliente deudor","Vendedor","N.º de remito","Fecha de entrega","Importe pendiente"]],
       body:filas.map(f=>[f.cliente,f.vendedor,`#${String(f.remito)}`,ccFechaAR(f.fecha),money(f.pendiente)]),
       foot:[["","","","Total pendiente",money(totalPendiente)]],
       showFoot:"lastPage",
@@ -5180,8 +5180,8 @@ function documentoCuentaCorrienteImprimible(cliente,remitos,totalRemitos,cuenta)
     ? `Saldo pendiente: ${money(saldo)}`
     : (saldo<-0.009 ? `Saldo a favor: ${money(Math.abs(saldo))}` : `Saldo actual: ${money(0)}`);
   const filas=remitos.length
-    ? remitos.map(m=>`<tr><td style="text-align:center;font-weight:800">#${escapeHtml(String(m.pedido_id||""))}</td><td>${escapeHtml(ccFechaAR(m.fecha_pedido||m.fecha))}</td><td>${escapeHtml(ccFechaAR(m.fecha_entregado))}</td><td class="num">${escapeHtml(money(Number(m.debe||0)))}</td></tr>`).join("")
-    : `<tr><td colspan="4" class="empty-row">No hay remitos para mostrar en el período seleccionado.</td></tr>`;
+    ? remitos.map(m=>`<tr><td style="text-align:center;font-weight:800">#${escapeHtml(String(m.pedido_id||""))}</td><td>${escapeHtml(ccFechaAR(m.fecha_entregado))}</td><td class="num">${escapeHtml(money(Number(m.debe||0)))}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="empty-row">No hay remitos para mostrar en el período seleccionado.</td></tr>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Cuenta corriente · ${escapeHtml(cliente.nombre||"")}</title>
     <style>
       @page{size:A4 portrait;margin:14mm}
@@ -5207,7 +5207,7 @@ function documentoCuentaCorrienteImprimible(cliente,remitos,totalRemitos,cuenta)
     </style></head><body><div class="sheet">
       <div class="no-print"><button class="print-btn" onclick="window.print()">Guardar como PDF</button></div>
       <div class="header"><div class="brand">Envases Devoto</div><h1>Cuenta corriente</h1><div class="client">${escapeHtml(cliente.nombre||"")}</div><div class="date">Generado el ${escapeHtml(new Date().toLocaleString("es-AR"))}</div></div>
-      <table><thead><tr><th style="text-align:center">N.º de remito</th><th>Fecha del pedido</th><th>Fecha de entrega</th><th style="text-align:right">Monto</th></tr></thead><tbody>${filas}</tbody></table>
+      <table><thead><tr><th style="text-align:center">N.º de remito</th><th>Fecha de entrega</th><th style="text-align:right">Monto</th></tr></thead><tbody>${filas}</tbody></table>
       <table class="summary"><tbody><tr><td>Total de remitos</td><td class="num">${escapeHtml(money(totalRemitos))}</td></tr><tr><td>${escapeHtml(saldoTexto.split(":")[0])}</td><td class="num">${escapeHtml(saldoTexto.split(":").slice(1).join(":").trim())}</td></tr></tbody></table>
     </div></body></html>`;
 }
@@ -5250,15 +5250,15 @@ function descargarCuentaCorrienteClientePDF(clienteId=null){
     doc.setTextColor(100,116,139);
     doc.text(`Generado el ${new Date().toLocaleString("es-AR")}`,14,40);
 
-    const filas=remitos.map(m=>[`#${String(m.pedido_id||"")}`,ccFechaAR(m.fecha_pedido||m.fecha),ccFechaAR(m.fecha_entregado),money(Number(m.debe||0))]);
+    const filas=remitos.map(m=>[`#${String(m.pedido_id||"")}`,ccFechaAR(m.fecha_entregado),money(Number(m.debe||0))]);
     doc.autoTable({
       startY:46,
-      head:[["N.º de remito","Fecha del pedido","Fecha de entrega","Monto"]],
-      body:filas.length?filas:[["Sin remitos en el período seleccionado","","",""]],
+      head:[["N.º de remito","Fecha de entrega","Monto"]],
+      body:filas.length?filas:[["Sin remitos en el período seleccionado","",""]],
       theme:"grid",
       styles:{font:"helvetica",fontSize:10,cellPadding:3.5,textColor:[15,23,42],lineColor:[219,228,239],lineWidth:.2},
       headStyles:{fillColor:[32,148,230],textColor:[255,255,255],fontStyle:"bold"},
-      columnStyles:{0:{halign:"center",cellWidth:34},1:{halign:"center",cellWidth:42},2:{halign:"center",cellWidth:42},3:{halign:"right",cellWidth:48}},
+      columnStyles:{0:{halign:"center",cellWidth:42},1:{halign:"center",cellWidth:64},2:{halign:"right",cellWidth:60}},
       margin:{left:14,right:14}
     });
 
