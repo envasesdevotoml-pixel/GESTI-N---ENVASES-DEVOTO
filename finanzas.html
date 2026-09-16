@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Finanzas · Envases Devoto</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     :root{
       --blue:#2094e6;--blue2:#1275bd;--green:#22a447;--red:#dc3b3b;--orange:#d97706;
@@ -28,6 +29,18 @@
     .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin-bottom:16px}
     .grid{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr));gap:14px;margin-bottom:16px}
     .metric .lbl{font-size:12px;color:var(--muted);font-weight:800}.metric .val{font-size:27px;font-weight:900;margin-top:7px}.metric .sub{font-size:11px;color:var(--muted);margin-top:5px}
+    .dashboard-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px}
+    .dashboard-head h1{margin:0 0 4px}.active-pill{display:inline-flex;align-items:center;gap:7px;padding:9px 12px;border-radius:999px;background:#ecfdf3;color:#15723a;border:1px solid #bbf7d0;font-size:12px;font-weight:900}
+    .dashboard-grid{display:grid;grid-template-columns:repeat(3,minmax(190px,1fr));gap:14px;margin-bottom:14px}.dashboard-grid.four{grid-template-columns:repeat(4,minmax(160px,1fr))}
+    .dash-card{position:relative;overflow:hidden;border-radius:18px;padding:17px 18px;border:1px solid var(--line);box-shadow:var(--shadow);background:#fff;min-height:112px}
+    .dash-card:after{content:'';position:absolute;width:92px;height:92px;border-radius:50%;right:-30px;top:-34px;background:currentColor;opacity:.08}
+    .dash-label{font-size:12px;font-weight:900;letter-spacing:.15px;opacity:.82}.dash-value{font-size:28px;font-weight:950;margin-top:8px;line-height:1}.dash-sub{font-size:11px;margin-top:8px;opacity:.72;font-weight:700}
+    .dash-con{color:#0f6fd4;background:linear-gradient(135deg,#f4f9ff,#eaf4ff);border-color:#b9dcfb}.dash-sin{color:#b85d00;background:linear-gradient(135deg,#fffaf2,#fff2df);border-color:#ffd39a}.dash-total{color:#172033;background:linear-gradient(135deg,#fff,#eef3f8);border-color:#cbd5e1}
+    .dash-pay-con{color:#137a4a;background:linear-gradient(135deg,#f4fff9,#eafaf1);border-color:#bce8d1}.dash-pay-sin{color:#8a4a0b;background:linear-gradient(135deg,#fffaf3,#fff4e7);border-color:#f3d3aa}
+    .balance-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:12px;margin-bottom:16px}.balance-grid .dash-card{min-height:105px;margin:0}
+    .summary-table tr.summary-con th,.summary-table tr.summary-con td{background:#f2f8ff}.summary-table tr.summary-con th{color:#0f6fd4}
+    .summary-table tr.summary-sin th,.summary-table tr.summary-sin td{background:#fff8ef}.summary-table tr.summary-sin th{color:#a75300}
+    .summary-table tr.summary-total th,.summary-table tr.summary-total td{background:#eef2f7;font-size:14px}.summary-table tr.summary-total th{color:#172033}
     .toolbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
     .form-grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px;align-items:end}
     .form-grid.two{grid-template-columns:repeat(2,minmax(180px,1fr))}
@@ -54,12 +67,19 @@
     .account-balance.debt{color:#b91c1c}.account-balance.credit{color:#15803d}
     .item-row{display:grid;grid-template-columns:2fr 1fr .8fr .8fr 1fr auto;gap:7px;align-items:end;padding:9px 0;border-bottom:1px solid var(--line)}
     .item-row:last-child{border-bottom:0}.cat-bar{display:grid;grid-template-columns:160px 1fr 110px;gap:9px;align-items:center;margin:8px 0}
+    .quick-box{margin-top:14px;border:1px dashed #b9c9dc;border-radius:14px;background:#f8fbff;padding:13px}
+    .quick-box .quick-title{font-weight:900;margin-bottom:4px}.quick-box .quick-help{font-size:12px;color:var(--muted);line-height:1.45;margin-bottom:10px}
+    .quick-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.quick-panel{display:none;margin-top:10px}.quick-panel.show{display:block}
+    .quick-panel textarea{min-height:150px;font-family:Consolas,monospace;font-size:12px;line-height:1.45}
+    .file-picker{border:1px solid var(--line);border-radius:12px;padding:11px;background:#fff}.file-picker input[type=file]{padding:7px;background:#f8fafc}
+    .pending-files{display:grid;gap:5px;margin-top:7px}.pending-file{font-size:12px;color:#475569;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+    .attach-links{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}.attach-btn{border:1px solid #bfd4ea;background:#f3f8fd;color:#155a91;border-radius:7px;padding:4px 7px;font-size:11px;font-weight:800;cursor:pointer}
     .bar{height:10px;background:#edf2f7;border-radius:999px;overflow:hidden}.bar>span{display:block;height:100%;background:var(--blue);border-radius:999px}
     .setup{max-width:720px;margin:70px auto;background:white;padding:26px;border-radius:20px;border:1px solid var(--line);box-shadow:var(--shadow)}
     #toast{position:fixed;right:18px;bottom:18px;z-index:200;display:grid;gap:8px}.toast{padding:12px 14px;border-radius:12px;background:#0f172a;color:#fff;box-shadow:0 12px 28px rgba(0,0,0,.22);font-weight:800;font-size:13px}
     .toast.ok{background:#15803d}.toast.err{background:#b91c1c}
-    @media(max-width:1050px){aside{width:210px}.grid{grid-template-columns:repeat(2,1fr)}.form-grid{grid-template-columns:repeat(2,1fr)}.split,.two-col{grid-template-columns:1fr}.item-row{grid-template-columns:1fr 1fr 1fr}.item-row .item-desc{grid-column:1/-1}}
-    @media(max-width:720px){header{padding:0 12px}.brand{font-size:17px}.layout{display:block}aside{position:static;width:100%;height:auto;display:flex;gap:6px;overflow:auto;padding:8px}.side-title,.side-note{display:none}.nav-btn{width:auto;min-width:max-content;margin:0}main{padding:12px}.grid,.form-grid,.form-grid.two{grid-template-columns:1fr}.span2,.span4{grid-column:auto}.modal{padding:0}.modal-box{min-height:100vh;border-radius:0}.item-row{grid-template-columns:1fr 1fr}.item-row .item-desc{grid-column:1/-1}.cat-bar{grid-template-columns:110px 1fr 90px}.top-actions .user-chip{display:none}}
+    @media(max-width:1050px){aside{width:210px}.grid{grid-template-columns:repeat(2,1fr)}.dashboard-grid,.dashboard-grid.four,.balance-grid{grid-template-columns:repeat(2,1fr)}.form-grid{grid-template-columns:repeat(2,1fr)}.split,.two-col{grid-template-columns:1fr}.item-row{grid-template-columns:1fr 1fr 1fr}.item-row .item-desc{grid-column:1/-1}}
+    @media(max-width:720px){header{padding:0 12px}.brand{font-size:17px}.layout{display:block}aside{position:static;width:100%;height:auto;display:flex;gap:6px;overflow:auto;padding:8px}.side-title,.side-note{display:none}.nav-btn{width:auto;min-width:max-content;margin:0}main{padding:12px}.grid,.dashboard-grid,.dashboard-grid.four,.balance-grid,.form-grid,.form-grid.two{grid-template-columns:1fr}.span2,.span4{grid-column:auto}.modal{padding:0}.modal-box{min-height:100vh;border-radius:0}.item-row{grid-template-columns:1fr 1fr}.item-row .item-desc{grid-column:1/-1}.cat-bar{grid-template-columns:110px 1fr 90px}.top-actions .user-chip{display:none}}
   </style>
 </head>
 <body>
@@ -86,12 +106,20 @@
 
   <main>
     <section id="view-proveedores" class="view active">
-      <h1>Proveedores</h1>
-      <div class="grid">
-        <div class="card metric"><div class="lbl">Proveedores activos</div><div class="val" id="kProvActivos">0</div><div class="sub">Contactos disponibles.</div></div>
-        <div class="card metric"><div class="lbl">Compras del mes</div><div class="val" id="kComprasMes">$0</div><div class="sub">Sin compras canceladas.</div></div>
-        <div class="card metric"><div class="lbl">Pagos del mes</div><div class="val" id="kPagosMes">$0</div><div class="sub">Pagos registrados.</div></div>
-        <div class="card metric"><div class="lbl">Saldo a proveedores</div><div class="val" id="kSaldoProv">$0</div><div class="sub">Compras + saldo inicial - pagos.</div></div>
+      <div class="dashboard-head">
+        <div><h1>Proveedores</h1><div class="small">Dashboard de deuda, compras y pagos separado por documentación.</div></div>
+        <div class="active-pill"><span id="kProvActivos">0</span> proveedores activos</div>
+      </div>
+      <div class="dashboard-grid">
+        <div class="dash-card dash-con"><div class="dash-label">Saldo con comprobante</div><div class="dash-value" id="kSaldoConProv">$0</div><div class="dash-sub">Total pendiente documentado.</div></div>
+        <div class="dash-card dash-sin"><div class="dash-label">Saldo sin comprobante</div><div class="dash-value" id="kSaldoSinProv">$0</div><div class="dash-sub">Total pendiente sin comprobante.</div></div>
+        <div class="dash-card dash-total"><div class="dash-label">Saldo total a proveedores</div><div class="dash-value" id="kSaldoProv">$0</div><div class="dash-sub">Suma de ambas cuentas.</div></div>
+      </div>
+      <div class="dashboard-grid four">
+        <div class="dash-card dash-con"><div class="dash-label">Compras del mes · con comprobante</div><div class="dash-value" id="kComprasConMes">$0</div><div class="dash-sub">Compras documentadas del mes.</div></div>
+        <div class="dash-card dash-sin"><div class="dash-label">Compras del mes · sin comprobante</div><div class="dash-value" id="kComprasSinMes">$0</div><div class="dash-sub">Compras sin comprobante del mes.</div></div>
+        <div class="dash-card dash-pay-con"><div class="dash-label">Pagos del mes · con comprobante</div><div class="dash-value" id="kPagosConMes">$0</div><div class="dash-sub">Pagos aplicados a cuenta documentada.</div></div>
+        <div class="dash-card dash-pay-sin"><div class="dash-label">Pagos del mes · sin comprobante</div><div class="dash-value" id="kPagosSinMes">$0</div><div class="dash-sub">Pagos aplicados a cuenta sin comprobante.</div></div>
       </div>
 
       <div class="card">
@@ -225,8 +253,13 @@
     </div>
     <div class="modal-body">
       <div class="card account-head">
-        <div><div class="small">Saldo actual</div><div id="modalProvSaldo" class="account-balance">$0</div><div class="small">Positivo = Envases Devoto le debe al proveedor.</div></div>
+        <div><b>Cuenta corriente del proveedor</b><div class="small">Los saldos positivos indican deuda de Envases Devoto.</div></div>
         <div id="modalProvDatos" class="small"></div>
+      </div>
+      <div class="balance-grid">
+        <div class="dash-card dash-con"><div class="dash-label">Saldo con comprobante</div><div id="modalProvSaldoCon" class="dash-value">$0</div><div class="dash-sub">Cuenta documentada.</div></div>
+        <div class="dash-card dash-sin"><div class="dash-label">Saldo sin comprobante</div><div id="modalProvSaldoSin" class="dash-value">$0</div><div class="dash-sub">Cuenta sin comprobante.</div></div>
+        <div class="dash-card dash-total"><div class="dash-label">Saldo total</div><div id="modalProvSaldo" class="dash-value">$0</div><div class="dash-sub">Suma de ambas cuentas.</div></div>
       </div>
       <div class="two-col">
         <div class="card">
@@ -245,9 +278,33 @@
             <div class="span2"><div id="cDocResumen" class="notice" style="margin:0;padding:9px 11px">La suma documentada debe coincidir con el total de la compra.</div></div>
             <div class="span2"><label>Observaciones</label><input id="cObs"></div>
           </div>
+          <div class="quick-box">
+            <div class="quick-title">Carga rápida de artículos</div>
+            <div class="quick-help">Para remitos grandes podés pegar varias líneas, importar un Excel/CSV o copiar la última compra de este proveedor. Después podés corregir cualquier renglón antes de guardar.</div>
+            <div class="quick-actions">
+              <button class="btn tiny secondary" type="button" onclick="toggleCargaPegada()">📋 Pegar lista</button>
+              <label class="btn tiny secondary" style="cursor:pointer">📊 Importar Excel / CSV<input id="cImportArchivo" type="file" accept=".xlsx,.xls,.csv,text/csv" onchange="importarArchivoCompra(event)" style="display:none"></label>
+              <button class="btn tiny secondary" type="button" onclick="duplicarUltimaCompra()">⧉ Duplicar última compra</button>
+            </div>
+            <div id="cPegadoPanel" class="quick-panel">
+              <label>Pegá una línea por artículo</label>
+              <textarea id="cPegado" placeholder="Ejemplo:
+Caja plástica 10x10 | 100 | unidad | 250
+Caja plástica 15x15 | 50 | unidad | 430
+
+También acepta: Descripción | Categoría | Cantidad | Unidad | Precio"></textarea>
+              <div class="toolbar" style="margin:8px 0 0"><button class="btn tiny" type="button" onclick="procesarPegadoCompra()">Cargar líneas</button><button class="btn tiny secondary" type="button" onclick="$('cPegado').value=''">Vaciar</button></div>
+            </div>
+          </div>
           <div style="margin-top:14px">
             <div class="toolbar" style="justify-content:space-between"><b>Detalle de materiales</b><button class="btn tiny secondary" onclick="addItemCompra()">+ Agregar ítem</button></div>
             <div id="compraItems"></div>
+          </div>
+          <div class="file-picker" style="margin-top:14px">
+            <label>Adjuntar remito / factura (opcional)</label>
+            <input id="cAdjuntos" type="file" multiple accept="image/*,application/pdf" onchange="mostrarAdjuntosPendientes()">
+            <div class="small">Podés guardar fotos o PDF del remito junto a la compra. Máximo 15 MB por archivo.</div>
+            <div id="cAdjuntosLista" class="pending-files"></div>
           </div>
           <div class="toolbar" style="margin-top:12px"><button class="btn success" onclick="guardarCompra()">Guardar compra</button><button class="btn secondary" onclick="limpiarCompra()">Limpiar</button></div>
         </div>
@@ -281,7 +338,7 @@
 <script>
 const CATEGORIAS=['Alquiler','Servicios','Sueldos','Impuestos','Logística','Publicidad','Insumos','Mantenimiento','Sistemas','Honorarios','Comisiones','Otros'];
 let sb=null,currentUser=null;
-let proveedores=[],compras=[],pagosProveedor=[],compraItems=[],gastos=[],recurrentes=[];
+let proveedores=[],compras=[],pagosProveedor=[],compraItems=[],compraArchivos=[],gastos=[],recurrentes=[];
 let provEditId=null,gastoEditId=null,recEditId=null,provDetalleId=null;
 const $=id=>document.getElementById(id);
 const num=v=>Number(v||0);
@@ -329,16 +386,17 @@ async function init(){
 }
 
 async function loadAll(){
-  const [rp,rc,rpg,ri,rg,rr]=await Promise.all([
+  const [rp,rc,rpg,ri,ra,rg,rr]=await Promise.all([
     q(sb.from('proveedores').select('*').order('nombre'),'No se pudieron cargar proveedores'),
     q(sb.from('compras_proveedor').select('*').order('fecha',{ascending:false}),'No se pudieron cargar compras'),
     q(sb.from('pagos_proveedor').select('*').order('fecha',{ascending:false}),'No se pudieron cargar pagos'),
     q(sb.from('compra_proveedor_items').select('*').order('id'),'No se pudieron cargar ítems'),
+    q(sb.from('compra_proveedor_archivos').select('*').order('id'),'No se pudieron cargar adjuntos'),
     q(sb.from('gastos').select('*').order('fecha',{ascending:false}),'No se pudieron cargar gastos'),
     q(sb.from('gastos_recurrentes').select('*').order('nombre'),'No se pudieron cargar recurrentes')
   ]);
   if(rp)proveedores=rp.data||[];if(rc)compras=rc.data||[];if(rpg)pagosProveedor=rpg.data||[];
-  if(ri)compraItems=ri.data||[];if(rg)gastos=rg.data||[];if(rr)recurrentes=rr.data||[];
+  if(ri)compraItems=ri.data||[];if(ra)compraArchivos=ra.data||[];if(rg)gastos=rg.data||[];if(rr)recurrentes=rr.data||[];
   fillProvSelects();renderProveedores();renderGastos();renderRecurrentes();renderMateriales();if(provDetalleId)renderProveedorDetalle()
 }
 
@@ -365,9 +423,18 @@ function saldoProveedor(id){const d=saldoProveedorPartes(id);return d.con+d.sin+
 function renderProveedores(){
   const mes=monthNow();
   $('kProvActivos').textContent=proveedores.filter(x=>x.activo!==false).length;
-  $('kComprasMes').textContent=money(compras.filter(x=>String(x.fecha||'').slice(0,7)===mes&&x.estado!=='Cancelado').reduce((s,x)=>s+num(x.total),0));
-  $('kPagosMes').textContent=money(pagosProveedor.filter(x=>String(x.fecha||'').slice(0,7)===mes).reduce((s,x)=>s+num(x.importe),0));
-  $('kSaldoProv').textContent=money(proveedores.reduce((s,p)=>s+Math.max(0,saldoProveedor(p.id)),0));
+  const comprasMes=compras.filter(x=>String(x.fecha||'').slice(0,7)===mes&&x.estado!=='Cancelado');
+  const pagosMes=pagosProveedor.filter(x=>String(x.fecha||'').slice(0,7)===mes);
+  const saldoConTotal=proveedores.reduce((s,p)=>s+Math.max(0,saldoProveedorPartes(p.id).con),0);
+  const saldoSinTotal=proveedores.reduce((s,p)=>s+Math.max(0,saldoProveedorPartes(p.id).sin),0);
+  const saldoGeneral=proveedores.reduce((s,p)=>s+Math.max(0,saldoProveedor(p.id)),0);
+  $('kSaldoConProv').textContent=money(saldoConTotal);
+  $('kSaldoSinProv').textContent=money(saldoSinTotal);
+  $('kSaldoProv').textContent=money(saldoGeneral);
+  $('kComprasConMes').textContent=money(comprasMes.reduce((s,x)=>s+num(x.importe_con_comprobante),0));
+  $('kComprasSinMes').textContent=money(comprasMes.reduce((s,x)=>s+num(x.importe_sin_comprobante),0));
+  $('kPagosConMes').textContent=money(pagosMes.reduce((s,x)=>s+num(x.importe_con_comprobante),0));
+  $('kPagosSinMes').textContent=money(pagosMes.reduce((s,x)=>s+num(x.importe_sin_comprobante),0));
   const qv=($('buscarProv').value||'').toLowerCase(),fa=$('filtroProvActivo').value;
   const data=proveedores.filter(p=>{
     const ok=!qv||[p.nombre,p.razon_social,p.cuit,p.rubro,p.contacto,p.telefono].some(v=>String(v||'').toLowerCase().includes(qv));
@@ -430,8 +497,11 @@ function cerrarProveedorDetalle(){provDetalleId=null;$('provModal').classList.re
 function renderProveedorDetalle(){
   const p=proveedores.find(x=>String(x.id)===String(provDetalleId));if(!p)return;
   $('modalProvNombre').textContent=p.nombre;$('modalProvMeta').textContent=[p.rubro,p.contacto,p.telefono].filter(Boolean).join(' · ');
-  const s=saldoProveedor(p.id);$('modalProvSaldo').className='account-balance '+(s>0?'debt':s<0?'credit':'');
+  const s=saldoProveedor(p.id);
+  const partesSaldo=saldoProveedorPartes(p.id);
   $('modalProvSaldo').textContent=s<0?money(Math.abs(s))+' a favor':money(s);
+  $('modalProvSaldoCon').textContent=partesSaldo.con<0?money(Math.abs(partesSaldo.con))+' a favor':money(partesSaldo.con);
+  $('modalProvSaldoSin').textContent=partesSaldo.sin<0?money(Math.abs(partesSaldo.sin))+' a favor':money(partesSaldo.sin);
   $('modalProvDatos').innerHTML=[p.cuit&&`CUIT: ${esc(p.cuit)}`,p.forma_pago&&`Pago: ${esc(p.forma_pago)}`,p.plazo_pago_dias&&`Plazo: ${num(p.plazo_pago_dias)} días`,p.datos_bancarios&&`Banco: ${esc(p.datos_bancarios)}`].filter(Boolean).join('<br>');
   const cs=compras.filter(x=>String(x.proveedor_id)===String(p.id));
   $('pgCompra').innerHTML='<option value="">Pago general / cuenta</option>'+cs.filter(x=>x.estado!=='Cancelado').map(x=>`<option value="${x.id}">#${x.id} · ${esc(x.comprobante||x.concepto||'Compra')} · ${money(x.total)}</option>`).join('');
@@ -444,18 +514,18 @@ function renderProveedorDetalle(){
   const pagosSin=pagosP.reduce((a,x)=>a+num(x.importe_sin_comprobante),0);
   const saldos=saldoProveedorPartes(p.id);
   const totalSinClasificar=Math.max(0,totalC-totalConComp-totalSinComp);
-  $('provResumenCompras').innerHTML=`<div class="table-wrap"><table>
-    <tr><th>Saldo inicial con comprobante</th><td class="right">${money(p.saldo_inicial_con_comprobante)}</td></tr>
-    <tr><th>Saldo inicial sin comprobante</th><td class="right">${money(p.saldo_inicial_sin_comprobante)}</td></tr>
-    <tr><th>Compras con comprobante</th><td class="right">${money(totalConComp)}</td></tr>
-    <tr><th>Compras sin comprobante</th><td class="right">${money(totalSinComp)}</td></tr>
+  $('provResumenCompras').innerHTML=`<div class="table-wrap"><table class="summary-table">
+    <tr class="summary-con"><th>Saldo inicial · con comprobante</th><td class="right">${money(p.saldo_inicial_con_comprobante)}</td></tr>
+    <tr class="summary-con"><th>Compras · con comprobante</th><td class="right">${money(totalConComp)}</td></tr>
+    <tr class="summary-con"><th>Pagos · con comprobante</th><td class="right">${money(pagosCon)}</td></tr>
+    <tr class="summary-con"><th><b>Saldo · con comprobante</b></th><td class="right ${saldos.con>0?'money-neg':saldos.con<0?'money-pos':''}"><b>${money(saldos.con)}</b></td></tr>
+    <tr class="summary-sin"><th>Saldo inicial · sin comprobante</th><td class="right">${money(p.saldo_inicial_sin_comprobante)}</td></tr>
+    <tr class="summary-sin"><th>Compras · sin comprobante</th><td class="right">${money(totalSinComp)}</td></tr>
+    <tr class="summary-sin"><th>Pagos · sin comprobante</th><td class="right">${money(pagosSin)}</td></tr>
+    <tr class="summary-sin"><th><b>Saldo · sin comprobante</b></th><td class="right ${saldos.sin>0?'money-neg':saldos.sin<0?'money-pos':''}"><b>${money(saldos.sin)}</b></td></tr>
     ${totalSinClasificar>0.01?`<tr><th>Compras sin clasificar</th><td class="right">${money(totalSinClasificar)}</td></tr>`:''}
-    <tr><th>Pagos con comprobante</th><td class="right">${money(pagosCon)}</td></tr>
-    <tr><th>Pagos sin comprobante</th><td class="right">${money(pagosSin)}</td></tr>
-    <tr><th>Saldo con comprobante</th><td class="right ${saldos.con>0?'money-neg':saldos.con<0?'money-pos':''}">${money(saldos.con)}</td></tr>
-    <tr><th>Saldo sin comprobante</th><td class="right ${saldos.sin>0?'money-neg':saldos.sin<0?'money-pos':''}">${money(saldos.sin)}</td></tr>
     ${Math.abs(saldos.sinClasificar)>0.01?`<tr><th>Saldo sin clasificar</th><td class="right">${money(saldos.sinClasificar)}</td></tr>`:''}
-    <tr><th><b>Saldo total</b></th><td class="right"><b>${money(saldos.con+saldos.sin+saldos.sinClasificar)}</b></td></tr>
+    <tr class="summary-total"><th><b>Saldo total</b></th><td class="right"><b>${money(saldos.con+saldos.sin+saldos.sinClasificar)}</b></td></tr>
   </table></div>`;
   const mov=[];
   cs.forEach(x=>mov.push({fecha:x.fecha,tipo:'Compra',detalle:x.comprobante||x.concepto||`Compra #${x.id}`,debe:x.estado==='Cancelado'?0:num(x.total),haber:0,obj:x}));
@@ -464,14 +534,16 @@ function renderProveedorDetalle(){
   let saldo=num(p.saldo_inicial);mov.forEach(m=>{saldo+=m.debe-m.haber;m.saldo=saldo});
   if(!mov.length){$('provMovimientos').innerHTML='<div class="empty">Todavía no hay movimientos.</div>';return}
   $('provMovimientos').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Debe</th><th>Haber</th><th>Saldo</th><th></th></tr></thead><tbody>${mov.map(m=>`<tr>
-    <td>${esc(m.fecha||'')}</td><td><b>${m.tipo}</b><div class="small">${esc(m.detalle)}</div>${m.tipo==='Compra'?`<div class="small">${detalleDocumentacion(m.obj)}</div>`:''}${m.tipo==='Pago'?`<div class="small">${detallePago(m.obj)}</div>`:''}${m.tipo==='Compra'&&m.obj.estado==='Cancelado'?'<span class="badge red">Cancelada</span>':''}</td>
+    <td>${esc(m.fecha||'')}</td><td><b>${m.tipo}</b><div class="small">${esc(m.detalle)}</div>${m.tipo==='Compra'?`<div class="small">${detalleDocumentacion(m.obj)}</div>${renderAdjuntosCompra(m.obj.id)}`:''}${m.tipo==='Pago'?`<div class="small">${detallePago(m.obj)}</div>`:''}${m.tipo==='Compra'&&m.obj.estado==='Cancelado'?'<span class="badge red">Cancelada</span>':''}</td>
     <td>${m.debe?money(m.debe):'-'}</td><td>${m.haber?money(m.haber):'-'}</td>
     <td class="${m.saldo>0?'money-neg':m.saldo<0?'money-pos':''}">${m.saldo<0?money(Math.abs(m.saldo))+' a favor':money(m.saldo)}</td>
     <td>${m.tipo==='Compra'&&m.obj.estado!=='Cancelado'?`<button class="btn tiny warning" onclick="cancelarCompra(${m.obj.id})">Cancelar compra</button>`:m.tipo==='Pago'?`<button class="btn tiny danger" onclick="eliminarPagoProveedor(${m.obj.id})">Eliminar pago</button>`:''}</td></tr>`).join('')}</tbody></table></div>`
 }
 
 function limpiarCompra(){
-  $('cFecha').value=today();$('cRecepcion').value='';$('cComprobante').value='';$('cVencimiento').value='';$('cConcepto').value='';$('cEstado').value='Pedido';$('cTotal').value=0;$('cDocTipo').value='Con comprobante';$('cConComprobante').value=0;$('cSinComprobante').value=0;$('cObs').value='';$('compraItems').innerHTML='';addItemCompra();ajustarDocumentacion()
+  $('cFecha').value=today();$('cRecepcion').value='';$('cComprobante').value='';$('cVencimiento').value='';$('cConcepto').value='';$('cEstado').value='Pedido';$('cTotal').value=0;$('cDocTipo').value='Con comprobante';$('cConComprobante').value=0;$('cSinComprobante').value=0;$('cObs').value='';$('compraItems').innerHTML='';
+  if($('cPegado'))$('cPegado').value='';if($('cPegadoPanel'))$('cPegadoPanel').classList.remove('show');if($('cImportArchivo'))$('cImportArchivo').value='';if($('cAdjuntos'))$('cAdjuntos').value='';if($('cAdjuntosLista'))$('cAdjuntosLista').innerHTML='';
+  addItemCompra();ajustarDocumentacion()
 }
 function ajustarDocumentacion(){
   const total=num($('cTotal').value),tipo=$('cDocTipo').value,con=$('cConComprobante'),sin=$('cSinComprobante');
@@ -491,6 +563,119 @@ function detalleDocumentacion(c){
   if(con==null&&sin==null)return 'Documentación: sin clasificar';
   return `Con comprobante: ${money(con)} · Sin comprobante: ${money(sin)}`
 }
+function parseNumeroFlex(v){
+  if(typeof v==='number')return Number.isFinite(v)?v:0;
+  let s=String(v??'').trim().replace(/\$/g,'').replace(/\s/g,'');
+  if(!s)return 0;
+  if(s.includes(',')&&s.includes('.')){
+    if(s.lastIndexOf(',')>s.lastIndexOf('.'))s=s.replace(/\./g,'').replace(',','.');
+    else s=s.replace(/,/g,'');
+  }else if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');
+  else if((s.match(/\./g)||[]).length>1)s=s.replace(/\./g,'');
+  s=s.replace(/[^0-9.-]/g,'');
+  const n=Number(s);return Number.isFinite(n)?n:0
+}
+function normHeader(v){return String(v??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'')}
+function esFilaEncabezado(row){
+  const h=row.map(normHeader).join('|');return /(descripcion|articulo|producto|material)/.test(h)&&/(cantidad|cant)/.test(h)
+}
+function filaAItem(row,headers=null){
+  if(!Array.isArray(row))return null;
+  if(headers){
+    const map={};headers.forEach((h,i)=>map[normHeader(h)]=i);
+    const buscar=(aliases)=>{for(const a of aliases){const k=Object.keys(map).find(x=>x===a||x.includes(a));if(k!=null)return row[map[k]]}return ''};
+    const descripcion=buscar(['descripcion','articulo','producto','material','detalle','item']);
+    const categoria=buscar(['categoria','rubro','familia']);
+    const cantidad=buscar(['cantidad','cant','qty']);
+    const unidad=buscar(['unidad','unid','uom']);
+    const precio=buscar(['preciounitario','precio','unitario','punitario','valorunitario']);
+    if(!String(descripcion??'').trim())return null;
+    return {descripcion:String(descripcion).trim(),categoria:String(categoria??'').trim(),cantidad:parseNumeroFlex(cantidad)||1,unidad:String(unidad??'').trim()||'u',precio_unitario:parseNumeroFlex(precio)}
+  }
+  const vals=row.map(x=>String(x??'').trim()).filter((x,i,a)=>i<a.length);
+  if(!vals[0])return null;
+  if(vals.length>=5)return {descripcion:vals[0],categoria:vals[1],cantidad:parseNumeroFlex(vals[2])||1,unidad:vals[3]||'u',precio_unitario:parseNumeroFlex(vals[4])};
+  if(vals.length>=4)return {descripcion:vals[0],categoria:'',cantidad:parseNumeroFlex(vals[1])||1,unidad:vals[2]||'u',precio_unitario:parseNumeroFlex(vals[3])};
+  if(vals.length===3)return {descripcion:vals[0],categoria:'',cantidad:parseNumeroFlex(vals[1])||1,unidad:'u',precio_unitario:parseNumeroFlex(vals[2])};
+  return null
+}
+function limpiarFilaVaciaInicial(){
+  const rows=[...document.querySelectorAll('#compraItems .item-row')];
+  if(rows.length===1){const r=rows[0],d=r.querySelector('.it-desc')?.value.trim(),p=num(r.querySelector('.it-price')?.value);if(!d&&!p)$('compraItems').innerHTML=''}
+}
+function cargarItemsMasivos(items,origen='lista'){
+  const validos=items.filter(x=>x&&x.descripcion);
+  if(!validos.length)return toast('No encontré artículos válidos para cargar.','err');
+  limpiarFilaVaciaInicial();validos.forEach(x=>addItemCompra(x));recalcCompra();toast(`${validos.length} artículo${validos.length===1?'':'s'} cargado${validos.length===1?'':'s'} desde ${origen}.`)
+}
+function toggleCargaPegada(){$('cPegadoPanel').classList.toggle('show');if($('cPegadoPanel').classList.contains('show'))$('cPegado').focus()}
+function procesarPegadoCompra(){
+  const txt=$('cPegado').value.trim();if(!txt)return toast('Pegá primero la lista de artículos.','err');
+  const lineas=txt.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);let rows=[];
+  for(const l of lineas){
+    let sep=l.includes('\t')?'\t':l.includes('|')?'|':l.includes(';')?';':null;
+    if(!sep)continue;rows.push(l.split(sep).map(x=>x.trim()))
+  }
+  if(rows.length&&esFilaEncabezado(rows[0])){const headers=rows.shift();cargarItemsMasivos(rows.map(r=>filaAItem(r,headers)),'texto pegado')}
+  else cargarItemsMasivos(rows.map(r=>filaAItem(r)),'texto pegado')
+}
+async function importarArchivoCompra(event){
+  const file=event.target.files?.[0];if(!file)return;
+  try{
+    if(!window.XLSX)throw new Error('No se pudo cargar el lector de Excel. Recargá la página e intentá de nuevo.');
+    const data=await file.arrayBuffer();const wb=XLSX.read(data,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];
+    let rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true}).filter(r=>r.some(v=>String(v??'').trim()!==''));
+    if(!rows.length)throw new Error('El archivo está vacío.');
+    let items=[];
+    if(esFilaEncabezado(rows[0])){const headers=rows.shift();items=rows.map(r=>filaAItem(r,headers))}
+    else items=rows.map(r=>filaAItem(r));
+    cargarItemsMasivos(items,file.name);event.target.value=''
+  }catch(e){console.error(e);toast('No pude importar el archivo: '+(e.message||e),'err');event.target.value=''}
+}
+function duplicarUltimaCompra(){
+  if(!provDetalleId)return;
+  const anteriores=compras.filter(c=>String(c.proveedor_id)===String(provDetalleId)&&c.estado!=='Cancelado'&&compraItems.some(i=>String(i.compra_id)===String(c.id)))
+    .sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||''))||num(b.id)-num(a.id));
+  const c=anteriores[0];if(!c)return toast('Este proveedor todavía no tiene una compra anterior con artículos para duplicar.','err');
+  const its=compraItems.filter(i=>String(i.compra_id)===String(c.id)).map(i=>({descripcion:i.descripcion,categoria:i.categoria,cantidad:i.cantidad,unidad:i.unidad,precio_unitario:i.precio_unitario}));
+  $('compraItems').innerHTML='';its.forEach(x=>addItemCompra(x));
+  $('cConcepto').value=c.concepto||'';$('cComprobante').value='';$('cFecha').value=today();$('cRecepcion').value='';$('cVencimiento').value='';$('cEstado').value='Pedido';
+  const total=num(c.total),con=num(c.importe_con_comprobante),sin=num(c.importe_sin_comprobante);
+  $('cDocTipo').value=(con>0&&sin>0)?'Mixto':sin>0?'Sin comprobante':'Con comprobante';
+  recalcCompra();if($('cDocTipo').value==='Mixto'&&total>0){const nuevo=num($('cTotal').value),ratio=con/total;$('cConComprobante').value=(nuevo*ratio).toFixed(2);$('cSinComprobante').value=(nuevo-(nuevo*ratio)).toFixed(2);actualizarResumenDocumentacion()}
+  toast(`Se copiaron ${its.length} artículos de la última compra. Revisá cantidades y precios antes de guardar.`)
+}
+function mostrarAdjuntosPendientes(){
+  const files=[...($('cAdjuntos')?.files||[])];$('cAdjuntosLista').innerHTML=files.map(f=>`<div class="pending-file">📎 ${esc(f.name)} · ${(f.size/1024/1024).toFixed(2)} MB</div>`).join('')
+}
+function archivosDeCompra(compraId){return compraArchivos.filter(a=>String(a.compra_id)===String(compraId))}
+function renderAdjuntosCompra(compraId){
+  const arr=archivosDeCompra(compraId);if(!arr.length)return '';
+  return `<div class="attach-links">${arr.map(a=>`<button type="button" class="attach-btn" onclick="abrirAdjunto(${a.id})">📎 ${esc(a.nombre_archivo)}</button>`).join('')}</div>`
+}
+async function abrirAdjunto(id){
+  const a=compraArchivos.find(x=>String(x.id)===String(id));if(!a)return;
+  const w=window.open('about:blank','_blank');
+  try{const {data,error}=await sb.storage.from('remitos-proveedores').createSignedUrl(a.storage_path,600);if(error)throw error;if(w)w.location=data.signedUrl;else window.open(data.signedUrl,'_blank')}
+  catch(e){if(w)w.close();console.error(e);toast('No pude abrir el adjunto: '+(e.message||e),'err')}
+}
+function nombreArchivoSeguro(name){
+  const p=String(name||'archivo').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9._-]+/g,'_');return p.slice(-120)||'archivo'
+}
+async function subirAdjuntosCompra(compraId){
+  const files=[...($('cAdjuntos')?.files||[])];let ok=0,fail=0;
+  for(const file of files){
+    if(file.size>15*1024*1024){fail++;toast(`${file.name}: supera 15 MB.`,'err');continue}
+    try{
+      const path=`proveedores/${provDetalleId}/compras/${compraId}/${Date.now()}_${Math.random().toString(36).slice(2,7)}_${nombreArchivoSeguro(file.name)}`;
+      const up=await sb.storage.from('remitos-proveedores').upload(path,file,{contentType:file.type||undefined,upsert:false});if(up.error)throw up.error;
+      const meta=await sb.from('compra_proveedor_archivos').insert({compra_id:compraId,nombre_archivo:file.name,storage_path:path,mime_type:file.type||null,tamano_bytes:file.size,usuario_nombre:currentUser?.nombre||currentUser?.usuario||null});
+      if(meta.error){await sb.storage.from('remitos-proveedores').remove([path]);throw meta.error}ok++
+    }catch(e){console.error(e);fail++;toast(`No pude guardar ${file.name}: ${e.message||e}`,'err')}
+  }
+  return {ok,fail}
+}
+
 function addItemCompra(v={}){
   const row=document.createElement('div');row.className='item-row';
   row.innerHTML=`<div class="item-desc"><label>Material / insumo</label><input class="it-desc" value="${esc(v.descripcion||'')}" placeholder="Fibroplus 3 mm, frasco PET..."></div>
@@ -522,7 +707,8 @@ async function guardarCompra(){
     categoria:row.querySelector('.it-cat').value.trim()||null,cantidad:num(row.querySelector('.it-qty').value),unidad:row.querySelector('.it-unit').value.trim()||null,
     precio_unitario:num(row.querySelector('.it-price').value)})).filter(x=>x.descripcion&&x.cantidad>=0);
   if(items.length){const ir=await q(sb.from('compra_proveedor_items').insert(items),'La compra se guardó, pero falló el detalle de materiales');if(!ir)return}
-  toast('Compra registrada.');limpiarCompra();await loadAll()
+  const adj=await subirAdjuntosCompra(id);
+  toast(adj.fail?`Compra registrada. ${adj.ok} adjunto(s) guardado(s) y ${adj.fail} con error.`:`Compra registrada${adj.ok?` con ${adj.ok} adjunto(s)`:''}.`,adj.fail?'err':'ok');limpiarCompra();await loadAll()
 }
 async function cancelarCompra(id){
   if(!confirm('¿Cancelar esta compra? Quedará en el historial pero no sumará al saldo.'))return;
