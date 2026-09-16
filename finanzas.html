@@ -106,7 +106,9 @@
           <div><label>Email</label><input id="pEmail" type="email"></div>
           <div><label>Forma de pago</label><input id="pFormaPago" placeholder="Transferencia / CC / cheque"></div>
           <div><label>Plazo de pago (días)</label><input id="pPlazo" type="number" min="0" value="0"></div>
-          <div><label>Saldo inicial</label><input id="pSaldoInicial" type="number" step="0.01" value="0"></div>
+          <div><label>Saldo inicial con comprobante</label><input id="pSaldoInicialCon" type="number" min="0" step="0.01" value="0" oninput="actualizarSaldoInicialTotal()"></div>
+          <div><label>Saldo inicial sin comprobante</label><input id="pSaldoInicialSin" type="number" min="0" step="0.01" value="0" oninput="actualizarSaldoInicialTotal()"></div>
+          <div><label>Saldo inicial total</label><input id="pSaldoInicialTotal" type="text" value="$ 0" readonly></div>
           <div class="span2"><label>Dirección</label><input id="pDireccion"></div>
           <div class="span2"><label>Datos bancarios</label><input id="pBanco" placeholder="Banco, alias, CBU"></div>
           <div class="span2"><label>Observaciones</label><input id="pObs" placeholder="Días de entrega, mínimo, contacto alternativo..."></div>
@@ -253,9 +255,13 @@
           <h2>Registrar pago</h2>
           <div class="form-grid two">
             <div><label>Fecha *</label><input id="pgFecha" type="date"></div>
-            <div><label>Importe *</label><input id="pgImporte" type="number" min="0.01" step="0.01"></div>
+            <div><label>Importe *</label><input id="pgImporte" type="number" min="0.01" step="0.01" oninput="ajustarPagoDocumentacion()"></div>
+            <div><label>Cuenta del pago</label><select id="pgDocTipo" onchange="ajustarPagoDocumentacion()"><option>Con comprobante</option><option>Sin comprobante</option><option>Mixto</option></select></div>
             <div><label>Forma de pago</label><select id="pgMetodo"><option value="">Elegir</option><option>Efectivo</option><option>Transferencia</option><option>Cheque</option><option>Mercado Pago</option><option>Otro</option></select></div>
-            <div><label>Aplicar a compra</label><select id="pgCompra"><option value="">Pago general / cuenta</option></select></div>
+            <div><label>Importe con comprobante</label><input id="pgConComprobante" type="number" min="0" step="0.01" value="0" oninput="actualizarResumenPago()"></div>
+            <div><label>Importe sin comprobante</label><input id="pgSinComprobante" type="number" min="0" step="0.01" value="0" oninput="actualizarResumenPago()"></div>
+            <div class="span2"><label>Aplicar a compra</label><select id="pgCompra"><option value="">Pago general / cuenta</option></select></div>
+            <div class="span2"><div id="pgDocResumen" class="notice" style="margin:0;padding:9px 11px">Elegí a qué cuenta corresponde el pago.</div></div>
             <div class="span2"><label>Referencia</label><input id="pgRef"></div>
             <div class="span2"><label>Observaciones</label><input id="pgObs"></div>
           </div>
@@ -336,12 +342,26 @@ async function loadAll(){
   fillProvSelects();renderProveedores();renderGastos();renderRecurrentes();renderMateriales();if(provDetalleId)renderProveedorDetalle()
 }
 
-function saldoProveedor(id){
+function saldoProveedorPartes(id){
   const p=proveedores.find(x=>String(x.id)===String(id));
-  const debe=compras.filter(x=>String(x.proveedor_id)===String(id)&&x.estado!=='Cancelado').reduce((s,x)=>s+num(x.total),0)+num(p?.saldo_inicial);
-  const haber=pagosProveedor.filter(x=>String(x.proveedor_id)===String(id)).reduce((s,x)=>s+num(x.importe),0);
-  return debe-haber
+  const cs=compras.filter(x=>String(x.proveedor_id)===String(id)&&x.estado!=='Cancelado');
+  const ps=pagosProveedor.filter(x=>String(x.proveedor_id)===String(id));
+  const iniCon=num(p?.saldo_inicial_con_comprobante);
+  const iniSin=num(p?.saldo_inicial_sin_comprobante);
+  const iniLegacy=Math.max(0,num(p?.saldo_inicial)-iniCon-iniSin);
+  const comprasCon=cs.reduce((s,x)=>s+num(x.importe_con_comprobante),0);
+  const comprasSin=cs.reduce((s,x)=>s+num(x.importe_sin_comprobante),0);
+  const comprasLegacy=Math.max(0,cs.reduce((s,x)=>s+num(x.total),0)-comprasCon-comprasSin);
+  const pagosCon=ps.reduce((s,x)=>s+num(x.importe_con_comprobante),0);
+  const pagosSin=ps.reduce((s,x)=>s+num(x.importe_sin_comprobante),0);
+  const pagosLegacy=Math.max(0,ps.reduce((s,x)=>s+num(x.importe),0)-pagosCon-pagosSin);
+  return {
+    con:iniCon+comprasCon-pagosCon,
+    sin:iniSin+comprasSin-pagosSin,
+    sinClasificar:iniLegacy+comprasLegacy-pagosLegacy
+  }
 }
+function saldoProveedor(id){const d=saldoProveedorPartes(id);return d.con+d.sin+d.sinClasificar}
 function renderProveedores(){
   const mes=monthNow();
   $('kProvActivos').textContent=proveedores.filter(x=>x.activo!==false).length;
@@ -366,24 +386,34 @@ function renderProveedores(){
       <button class="btn tiny ${p.activo!==false?'warning':'success'}" onclick="toggleProveedor(${p.id},${p.activo!==false})">${p.activo!==false?'Inactivar':'Activar'}</button></div></td></tr>`
   }).join('')}</tbody></table></div>`
 }
+function actualizarSaldoInicialTotal(){
+  const con=num($('pSaldoInicialCon').value),sin=num($('pSaldoInicialSin').value);
+  $('pSaldoInicialTotal').value=money(con+sin)
+}
 function limpiarProveedor(){
   provEditId=null;$('provFormTitle').textContent='Nuevo proveedor';$('btnGuardarProv').textContent='Guardar proveedor';$('btnCancelarProv').style.display='none';
   ['pNombre','pRazon','pCuit','pRubro','pContacto','pTelefono','pEmail','pFormaPago','pDireccion','pBanco','pObs'].forEach(id=>$(id).value='');
-  $('pPlazo').value=0;$('pSaldoInicial').value=0
+  $('pPlazo').value=0;$('pSaldoInicialCon').value=0;$('pSaldoInicialSin').value=0;actualizarSaldoInicialTotal()
 }
 function editarProveedor(id){
   const p=proveedores.find(x=>String(x.id)===String(id));if(!p)return;provEditId=id;
   $('provFormTitle').textContent='Editar proveedor';$('btnGuardarProv').textContent='Guardar cambios';$('btnCancelarProv').style.display='inline-block';
   $('pNombre').value=p.nombre||'';$('pRazon').value=p.razon_social||'';$('pCuit').value=p.cuit||'';$('pRubro').value=p.rubro||'';
   $('pContacto').value=p.contacto||'';$('pTelefono').value=p.telefono||'';$('pEmail').value=p.email||'';$('pFormaPago').value=p.forma_pago||'';
-  $('pPlazo').value=num(p.plazo_pago_dias);$('pSaldoInicial').value=num(p.saldo_inicial);$('pDireccion').value=p.direccion||'';$('pBanco').value=p.datos_bancarios||'';$('pObs').value=p.observaciones||'';
+  $('pPlazo').value=num(p.plazo_pago_dias);
+  const splitInicial=num(p.saldo_inicial_con_comprobante)+num(p.saldo_inicial_sin_comprobante);
+  $('pSaldoInicialCon').value=num(p.saldo_inicial_con_comprobante)||(splitInicial===0?num(p.saldo_inicial):0);
+  $('pSaldoInicialSin').value=num(p.saldo_inicial_sin_comprobante);actualizarSaldoInicialTotal();
+  $('pDireccion').value=p.direccion||'';$('pBanco').value=p.datos_bancarios||'';$('pObs').value=p.observaciones||'';
   window.scrollTo({top:0,behavior:'smooth'})
 }
 async function guardarProveedor(){
   const nombre=$('pNombre').value.trim();if(!nombre)return toast('Ingresá el nombre del proveedor.','err');
   const payload={nombre,razon_social:$('pRazon').value.trim()||null,cuit:$('pCuit').value.trim()||null,rubro:$('pRubro').value.trim()||null,
     contacto:$('pContacto').value.trim()||null,telefono:$('pTelefono').value.trim()||null,email:$('pEmail').value.trim()||null,
-    forma_pago:$('pFormaPago').value.trim()||null,plazo_pago_dias:num($('pPlazo').value),saldo_inicial:num($('pSaldoInicial').value),
+    forma_pago:$('pFormaPago').value.trim()||null,plazo_pago_dias:num($('pPlazo').value),
+    saldo_inicial_con_comprobante:num($('pSaldoInicialCon').value),saldo_inicial_sin_comprobante:num($('pSaldoInicialSin').value),
+    saldo_inicial:num($('pSaldoInicialCon').value)+num($('pSaldoInicialSin').value),
     direccion:$('pDireccion').value.trim()||null,datos_bancarios:$('pBanco').value.trim()||null,observaciones:$('pObs').value.trim()||null,updated_at:new Date().toISOString()};
   const r=provEditId?await q(sb.from('proveedores').update(payload).eq('id',provEditId),'No se pudo actualizar'):await q(sb.from('proveedores').insert({...payload,activo:true}),'No se pudo crear');
   if(r){toast(provEditId?'Proveedor actualizado.':'Proveedor creado.');limpiarProveedor();await loadAll()}
@@ -394,7 +424,7 @@ async function toggleProveedor(id,activo){
 }
 
 function abrirProveedor(id){
-  provDetalleId=id;$('provModal').classList.add('show');limpiarCompra();$('pgFecha').value=today();$('pgImporte').value='';$('pgRef').value='';$('pgObs').value='';renderProveedorDetalle()
+  provDetalleId=id;$('provModal').classList.add('show');limpiarCompra();$('pgFecha').value=today();$('pgImporte').value='';$('pgDocTipo').value='Con comprobante';$('pgConComprobante').value=0;$('pgSinComprobante').value=0;$('pgRef').value='';$('pgObs').value='';ajustarPagoDocumentacion();renderProveedorDetalle()
 }
 function cerrarProveedorDetalle(){provDetalleId=null;$('provModal').classList.remove('show')}
 function renderProveedorDetalle(){
@@ -406,11 +436,27 @@ function renderProveedorDetalle(){
   const cs=compras.filter(x=>String(x.proveedor_id)===String(p.id));
   $('pgCompra').innerHTML='<option value="">Pago general / cuenta</option>'+cs.filter(x=>x.estado!=='Cancelado').map(x=>`<option value="${x.id}">#${x.id} · ${esc(x.comprobante||x.concepto||'Compra')} · ${money(x.total)}</option>`).join('');
   const comprasValidas=cs.filter(x=>x.estado!=='Cancelado');
-  const totalC=comprasValidas.reduce((a,x)=>a+num(x.total),0), totalP=pagosProveedor.filter(x=>String(x.proveedor_id)===String(p.id)).reduce((a,x)=>a+num(x.importe),0);
+  const pagosP=pagosProveedor.filter(x=>String(x.proveedor_id)===String(p.id));
+  const totalC=comprasValidas.reduce((a,x)=>a+num(x.total),0), totalP=pagosP.reduce((a,x)=>a+num(x.importe),0);
   const totalConComp=comprasValidas.reduce((a,x)=>a+num(x.importe_con_comprobante),0);
   const totalSinComp=comprasValidas.reduce((a,x)=>a+num(x.importe_sin_comprobante),0);
+  const pagosCon=pagosP.reduce((a,x)=>a+num(x.importe_con_comprobante),0);
+  const pagosSin=pagosP.reduce((a,x)=>a+num(x.importe_sin_comprobante),0);
+  const saldos=saldoProveedorPartes(p.id);
   const totalSinClasificar=Math.max(0,totalC-totalConComp-totalSinComp);
-  $('provResumenCompras').innerHTML=`<div class="table-wrap"><table><tr><th>Compras</th><td class="right">${money(totalC)}</td></tr><tr><th>Con comprobante</th><td class="right">${money(totalConComp)}</td></tr><tr><th>Sin comprobante</th><td class="right">${money(totalSinComp)}</td></tr>${totalSinClasificar>0.01?`<tr><th>Sin clasificar</th><td class="right">${money(totalSinClasificar)}</td></tr>`:''}<tr><th>Pagos</th><td class="right">${money(totalP)}</td></tr><tr><th>Saldo inicial</th><td class="right">${money(p.saldo_inicial)}</td></tr></table></div>`;
+  $('provResumenCompras').innerHTML=`<div class="table-wrap"><table>
+    <tr><th>Saldo inicial con comprobante</th><td class="right">${money(p.saldo_inicial_con_comprobante)}</td></tr>
+    <tr><th>Saldo inicial sin comprobante</th><td class="right">${money(p.saldo_inicial_sin_comprobante)}</td></tr>
+    <tr><th>Compras con comprobante</th><td class="right">${money(totalConComp)}</td></tr>
+    <tr><th>Compras sin comprobante</th><td class="right">${money(totalSinComp)}</td></tr>
+    ${totalSinClasificar>0.01?`<tr><th>Compras sin clasificar</th><td class="right">${money(totalSinClasificar)}</td></tr>`:''}
+    <tr><th>Pagos con comprobante</th><td class="right">${money(pagosCon)}</td></tr>
+    <tr><th>Pagos sin comprobante</th><td class="right">${money(pagosSin)}</td></tr>
+    <tr><th>Saldo con comprobante</th><td class="right ${saldos.con>0?'money-neg':saldos.con<0?'money-pos':''}">${money(saldos.con)}</td></tr>
+    <tr><th>Saldo sin comprobante</th><td class="right ${saldos.sin>0?'money-neg':saldos.sin<0?'money-pos':''}">${money(saldos.sin)}</td></tr>
+    ${Math.abs(saldos.sinClasificar)>0.01?`<tr><th>Saldo sin clasificar</th><td class="right">${money(saldos.sinClasificar)}</td></tr>`:''}
+    <tr><th><b>Saldo total</b></th><td class="right"><b>${money(saldos.con+saldos.sin+saldos.sinClasificar)}</b></td></tr>
+  </table></div>`;
   const mov=[];
   cs.forEach(x=>mov.push({fecha:x.fecha,tipo:'Compra',detalle:x.comprobante||x.concepto||`Compra #${x.id}`,debe:x.estado==='Cancelado'?0:num(x.total),haber:0,obj:x}));
   pagosProveedor.filter(x=>String(x.proveedor_id)===String(p.id)).forEach(x=>mov.push({fecha:x.fecha,tipo:'Pago',detalle:x.referencia||x.metodo_pago||`Pago #${x.id}`,debe:0,haber:num(x.importe),obj:x}));
@@ -418,7 +464,7 @@ function renderProveedorDetalle(){
   let saldo=num(p.saldo_inicial);mov.forEach(m=>{saldo+=m.debe-m.haber;m.saldo=saldo});
   if(!mov.length){$('provMovimientos').innerHTML='<div class="empty">Todavía no hay movimientos.</div>';return}
   $('provMovimientos').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Debe</th><th>Haber</th><th>Saldo</th><th></th></tr></thead><tbody>${mov.map(m=>`<tr>
-    <td>${esc(m.fecha||'')}</td><td><b>${m.tipo}</b><div class="small">${esc(m.detalle)}</div>${m.tipo==='Compra'?`<div class="small">${detalleDocumentacion(m.obj)}</div>`:''}${m.tipo==='Compra'&&m.obj.estado==='Cancelado'?'<span class="badge red">Cancelada</span>':''}</td>
+    <td>${esc(m.fecha||'')}</td><td><b>${m.tipo}</b><div class="small">${esc(m.detalle)}</div>${m.tipo==='Compra'?`<div class="small">${detalleDocumentacion(m.obj)}</div>`:''}${m.tipo==='Pago'?`<div class="small">${detallePago(m.obj)}</div>`:''}${m.tipo==='Compra'&&m.obj.estado==='Cancelado'?'<span class="badge red">Cancelada</span>':''}</td>
     <td>${m.debe?money(m.debe):'-'}</td><td>${m.haber?money(m.haber):'-'}</td>
     <td class="${m.saldo>0?'money-neg':m.saldo<0?'money-pos':''}">${m.saldo<0?money(Math.abs(m.saldo))+' a favor':money(m.saldo)}</td>
     <td>${m.tipo==='Compra'&&m.obj.estado!=='Cancelado'?`<button class="btn tiny warning" onclick="cancelarCompra(${m.obj.id})">Cancelar compra</button>`:m.tipo==='Pago'?`<button class="btn tiny danger" onclick="eliminarPagoProveedor(${m.obj.id})">Eliminar pago</button>`:''}</td></tr>`).join('')}</tbody></table></div>`
@@ -483,12 +529,36 @@ async function cancelarCompra(id){
   const r=await q(sb.from('compras_proveedor').update({estado:'Cancelado',updated_at:new Date().toISOString()}).eq('id',id),'No se pudo cancelar');
   if(r){toast('Compra cancelada.');await loadAll()}
 }
+function ajustarPagoDocumentacion(){
+  const total=num($('pgImporte').value),tipo=$('pgDocTipo').value,con=$('pgConComprobante'),sin=$('pgSinComprobante');
+  if(tipo==='Con comprobante'){con.readOnly=true;sin.readOnly=true;con.value=total.toFixed(2);sin.value='0'}
+  else if(tipo==='Sin comprobante'){con.readOnly=true;sin.readOnly=true;con.value='0';sin.value=total.toFixed(2)}
+  else {con.readOnly=false;sin.readOnly=false}
+  actualizarResumenPago()
+}
+function actualizarResumenPago(){
+  const total=num($('pgImporte').value),con=num($('pgConComprobante').value),sin=num($('pgSinComprobante').value),suma=con+sin,dif=Math.abs(total-suma);
+  const box=$('pgDocResumen');if(!box)return;
+  box.textContent=`Con comprobante: ${money(con)} · Sin comprobante: ${money(sin)} · Clasificado: ${money(suma)} de ${money(total)}`;
+  box.className='notice'+(dif>0.01?' warn':'')
+}
+function detallePago(p){
+  const con=num(p.importe_con_comprobante),sin=num(p.importe_sin_comprobante),total=num(p.importe);
+  if(con+sin===0&&total>0)return 'Cuenta: sin clasificar';
+  return `Con comprobante: ${money(con)} · Sin comprobante: ${money(sin)}`
+}
+
 async function guardarPagoProveedor(){
   if(!provDetalleId)return;const imp=num($('pgImporte').value);if(imp<=0)return toast('Ingresá un importe válido.','err');
-  const payload={proveedor_id:provDetalleId,compra_id:$('pgCompra').value||null,fecha:$('pgFecha').value||today(),importe:imp,metodo_pago:$('pgMetodo').value||null,
+  const tipo=$('pgDocTipo').value;let con=num($('pgConComprobante').value),sin=num($('pgSinComprobante').value);
+  if(tipo==='Con comprobante'){con=imp;sin=0}
+  else if(tipo==='Sin comprobante'){con=0;sin=imp}
+  else if(Math.abs((con+sin)-imp)>0.01)return toast('En un pago mixto, con comprobante + sin comprobante debe dar exactamente el total.','err');
+  const payload={proveedor_id:provDetalleId,compra_id:$('pgCompra').value||null,fecha:$('pgFecha').value||today(),importe:imp,
+    importe_con_comprobante:con,importe_sin_comprobante:sin,metodo_pago:$('pgMetodo').value||null,
     referencia:$('pgRef').value.trim()||null,observaciones:$('pgObs').value.trim()||null,usuario_nombre:currentUser?.nombre||currentUser?.usuario||null};
   const r=await q(sb.from('pagos_proveedor').insert(payload),'No se pudo registrar el pago');
-  if(r){toast('Pago registrado.');$('pgImporte').value='';$('pgRef').value='';$('pgObs').value='';await loadAll()}
+  if(r){toast('Pago registrado.');$('pgImporte').value='';$('pgDocTipo').value='Con comprobante';$('pgConComprobante').value=0;$('pgSinComprobante').value=0;$('pgRef').value='';$('pgObs').value='';ajustarPagoDocumentacion();await loadAll()}
 }
 async function eliminarPagoProveedor(id){
   if(!confirm('¿Eliminar este pago? El saldo del proveedor se recalculará.'))return;
