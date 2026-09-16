@@ -236,7 +236,11 @@
             <div><label>Vencimiento</label><input id="cVencimiento" type="date"></div>
             <div class="span2"><label>Concepto</label><input id="cConcepto" placeholder="Ej: Compra de Fibroplus 3 mm"></div>
             <div><label>Estado</label><select id="cEstado"><option>Pedido</option><option>Recibido</option><option>Cancelado</option></select></div>
-            <div><label>Total</label><input id="cTotal" type="number" min="0" step="0.01" value="0"></div>
+            <div><label>Total</label><input id="cTotal" type="number" min="0" step="0.01" value="0" oninput="ajustarDocumentacion()"></div>
+            <div><label>Documentación</label><select id="cDocTipo" onchange="ajustarDocumentacion()"><option>Con comprobante</option><option>Sin comprobante</option><option>Mixto</option></select></div>
+            <div><label>Importe con comprobante</label><input id="cConComprobante" type="number" min="0" step="0.01" value="0" oninput="actualizarResumenDocumentacion()"></div>
+            <div><label>Importe sin comprobante</label><input id="cSinComprobante" type="number" min="0" step="0.01" value="0" oninput="actualizarResumenDocumentacion()"></div>
+            <div class="span2"><div id="cDocResumen" class="notice" style="margin:0;padding:9px 11px">La suma documentada debe coincidir con el total de la compra.</div></div>
             <div class="span2"><label>Observaciones</label><input id="cObs"></div>
           </div>
           <div style="margin-top:14px">
@@ -401,8 +405,12 @@ function renderProveedorDetalle(){
   $('modalProvDatos').innerHTML=[p.cuit&&`CUIT: ${esc(p.cuit)}`,p.forma_pago&&`Pago: ${esc(p.forma_pago)}`,p.plazo_pago_dias&&`Plazo: ${num(p.plazo_pago_dias)} días`,p.datos_bancarios&&`Banco: ${esc(p.datos_bancarios)}`].filter(Boolean).join('<br>');
   const cs=compras.filter(x=>String(x.proveedor_id)===String(p.id));
   $('pgCompra').innerHTML='<option value="">Pago general / cuenta</option>'+cs.filter(x=>x.estado!=='Cancelado').map(x=>`<option value="${x.id}">#${x.id} · ${esc(x.comprobante||x.concepto||'Compra')} · ${money(x.total)}</option>`).join('');
-  const totalC=cs.filter(x=>x.estado!=='Cancelado').reduce((a,x)=>a+num(x.total),0), totalP=pagosProveedor.filter(x=>String(x.proveedor_id)===String(p.id)).reduce((a,x)=>a+num(x.importe),0);
-  $('provResumenCompras').innerHTML=`<div class="table-wrap"><table><tr><th>Compras</th><td class="right">${money(totalC)}</td></tr><tr><th>Pagos</th><td class="right">${money(totalP)}</td></tr><tr><th>Saldo inicial</th><td class="right">${money(p.saldo_inicial)}</td></tr></table></div>`;
+  const comprasValidas=cs.filter(x=>x.estado!=='Cancelado');
+  const totalC=comprasValidas.reduce((a,x)=>a+num(x.total),0), totalP=pagosProveedor.filter(x=>String(x.proveedor_id)===String(p.id)).reduce((a,x)=>a+num(x.importe),0);
+  const totalConComp=comprasValidas.reduce((a,x)=>a+num(x.importe_con_comprobante),0);
+  const totalSinComp=comprasValidas.reduce((a,x)=>a+num(x.importe_sin_comprobante),0);
+  const totalSinClasificar=Math.max(0,totalC-totalConComp-totalSinComp);
+  $('provResumenCompras').innerHTML=`<div class="table-wrap"><table><tr><th>Compras</th><td class="right">${money(totalC)}</td></tr><tr><th>Con comprobante</th><td class="right">${money(totalConComp)}</td></tr><tr><th>Sin comprobante</th><td class="right">${money(totalSinComp)}</td></tr>${totalSinClasificar>0.01?`<tr><th>Sin clasificar</th><td class="right">${money(totalSinClasificar)}</td></tr>`:''}<tr><th>Pagos</th><td class="right">${money(totalP)}</td></tr><tr><th>Saldo inicial</th><td class="right">${money(p.saldo_inicial)}</td></tr></table></div>`;
   const mov=[];
   cs.forEach(x=>mov.push({fecha:x.fecha,tipo:'Compra',detalle:x.comprobante||x.concepto||`Compra #${x.id}`,debe:x.estado==='Cancelado'?0:num(x.total),haber:0,obj:x}));
   pagosProveedor.filter(x=>String(x.proveedor_id)===String(p.id)).forEach(x=>mov.push({fecha:x.fecha,tipo:'Pago',detalle:x.referencia||x.metodo_pago||`Pago #${x.id}`,debe:0,haber:num(x.importe),obj:x}));
@@ -410,14 +418,32 @@ function renderProveedorDetalle(){
   let saldo=num(p.saldo_inicial);mov.forEach(m=>{saldo+=m.debe-m.haber;m.saldo=saldo});
   if(!mov.length){$('provMovimientos').innerHTML='<div class="empty">Todavía no hay movimientos.</div>';return}
   $('provMovimientos').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th>Debe</th><th>Haber</th><th>Saldo</th><th></th></tr></thead><tbody>${mov.map(m=>`<tr>
-    <td>${esc(m.fecha||'')}</td><td><b>${m.tipo}</b><div class="small">${esc(m.detalle)}</div>${m.tipo==='Compra'&&m.obj.estado==='Cancelado'?'<span class="badge red">Cancelada</span>':''}</td>
+    <td>${esc(m.fecha||'')}</td><td><b>${m.tipo}</b><div class="small">${esc(m.detalle)}</div>${m.tipo==='Compra'?`<div class="small">${detalleDocumentacion(m.obj)}</div>`:''}${m.tipo==='Compra'&&m.obj.estado==='Cancelado'?'<span class="badge red">Cancelada</span>':''}</td>
     <td>${m.debe?money(m.debe):'-'}</td><td>${m.haber?money(m.haber):'-'}</td>
     <td class="${m.saldo>0?'money-neg':m.saldo<0?'money-pos':''}">${m.saldo<0?money(Math.abs(m.saldo))+' a favor':money(m.saldo)}</td>
     <td>${m.tipo==='Compra'&&m.obj.estado!=='Cancelado'?`<button class="btn tiny warning" onclick="cancelarCompra(${m.obj.id})">Cancelar compra</button>`:m.tipo==='Pago'?`<button class="btn tiny danger" onclick="eliminarPagoProveedor(${m.obj.id})">Eliminar pago</button>`:''}</td></tr>`).join('')}</tbody></table></div>`
 }
 
 function limpiarCompra(){
-  $('cFecha').value=today();$('cRecepcion').value='';$('cComprobante').value='';$('cVencimiento').value='';$('cConcepto').value='';$('cEstado').value='Pedido';$('cTotal').value=0;$('cObs').value='';$('compraItems').innerHTML='';addItemCompra()
+  $('cFecha').value=today();$('cRecepcion').value='';$('cComprobante').value='';$('cVencimiento').value='';$('cConcepto').value='';$('cEstado').value='Pedido';$('cTotal').value=0;$('cDocTipo').value='Con comprobante';$('cConComprobante').value=0;$('cSinComprobante').value=0;$('cObs').value='';$('compraItems').innerHTML='';addItemCompra();ajustarDocumentacion()
+}
+function ajustarDocumentacion(){
+  const total=num($('cTotal').value),tipo=$('cDocTipo').value,con=$('cConComprobante'),sin=$('cSinComprobante');
+  if(tipo==='Con comprobante'){con.readOnly=true;sin.readOnly=true;con.value=total.toFixed(2);sin.value='0'}
+  else if(tipo==='Sin comprobante'){con.readOnly=true;sin.readOnly=true;con.value='0';sin.value=total.toFixed(2)}
+  else {con.readOnly=false;sin.readOnly=false}
+  actualizarResumenDocumentacion()
+}
+function actualizarResumenDocumentacion(){
+  const total=num($('cTotal').value),con=num($('cConComprobante').value),sin=num($('cSinComprobante').value),suma=con+sin,dif=Math.abs(total-suma);
+  const box=$('cDocResumen');
+  box.textContent=`Con comprobante: ${money(con)} · Sin comprobante: ${money(sin)} · Clasificado: ${money(suma)} de ${money(total)}`;
+  box.className='notice'+(dif>0.01?' warn':'')
+}
+function detalleDocumentacion(c){
+  const con=c.importe_con_comprobante,sin=c.importe_sin_comprobante;
+  if(con==null&&sin==null)return 'Documentación: sin clasificar';
+  return `Con comprobante: ${money(con)} · Sin comprobante: ${money(sin)}`
 }
 function addItemCompra(v={}){
   const row=document.createElement('div');row.className='item-row';
@@ -432,12 +458,17 @@ function addItemCompra(v={}){
 function recalcCompra(){
   const rows=[...document.querySelectorAll('#compraItems .item-row')];
   const total=rows.reduce((s,r)=>s+num(r.querySelector('.it-qty').value)*num(r.querySelector('.it-price').value),0);
-  if(total>0)$('cTotal').value=total.toFixed(2)
+  if(total>0)$('cTotal').value=total.toFixed(2);
+  ajustarDocumentacion()
 }
 async function guardarCompra(){
   if(!provDetalleId)return;const total=num($('cTotal').value);if(total<=0)return toast('El total de la compra debe ser mayor a 0.','err');
+  const tipoDoc=$('cDocTipo').value;let importeCon=num($('cConComprobante').value),importeSin=num($('cSinComprobante').value);
+  if(tipoDoc==='Con comprobante'){importeCon=total;importeSin=0}
+  else if(tipoDoc==='Sin comprobante'){importeCon=0;importeSin=total}
+  else if(Math.abs((importeCon+importeSin)-total)>0.01)return toast('En una compra mixta, con comprobante + sin comprobante debe dar exactamente el total.','err');
   const payload={proveedor_id:provDetalleId,fecha:$('cFecha').value||today(),fecha_recepcion:$('cRecepcion').value||null,comprobante:$('cComprobante').value.trim()||null,
-    concepto:$('cConcepto').value.trim()||null,total,vencimiento:$('cVencimiento').value||null,estado:$('cEstado').value,observaciones:$('cObs').value.trim()||null,
+    concepto:$('cConcepto').value.trim()||null,total,importe_con_comprobante:importeCon,importe_sin_comprobante:importeSin,vencimiento:$('cVencimiento').value||null,estado:$('cEstado').value,observaciones:$('cObs').value.trim()||null,
     usuario_nombre:currentUser?.nombre||currentUser?.usuario||null,updated_at:new Date().toISOString()};
   const r=await q(sb.from('compras_proveedor').insert(payload).select('id').single(),'No se pudo guardar la compra');if(!r)return;
   const id=r.data.id;
