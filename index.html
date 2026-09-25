@@ -96,6 +96,7 @@
     .btn.danger{background:var(--red)}
     .pedido-head{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:10px;margin-bottom:14px}
     .quick-box{display:grid;grid-template-columns:1fr 180px auto;gap:10px;margin-bottom:14px}
+    #productoPersonalizadoCampos{grid-template-columns:minmax(200px,1fr) 110px 150px auto}
     .order-table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;border:1px solid var(--line)}
     .order-table th,.order-table td{padding:11px;border-bottom:1px solid var(--line);font-size:14px;text-align:left;vertical-align:middle}
     .order-table th{background:#fafafa;color:#555;font-weight:900}
@@ -316,6 +317,7 @@
       .btn{padding:9px 12px;font-size:13px}
       .pedido-head{grid-template-columns:1fr 1fr}
       .quick-box{grid-template-columns:1fr}
+      #productoPersonalizadoCampos{grid-template-columns:1fr}
       .commercial-grid{grid-template-columns:1fr 1fr}
       .two{grid-template-columns:1fr}
       .total-row{font-size:16px}
@@ -656,7 +658,6 @@ function toast(msg, tipo='', duracion=3500){
       <button onclick="go('preparacion',this)"><span class="nav-icon">📦</span><span class="nav-label">Preparación</span></button>
       <button onclick="go('listaCorte',this)"><span class="nav-icon">✂️</span><span class="nav-label">Lista de corte</span></button>
       <button onclick="go('productos',this)"><span class="nav-icon">🏷️</span><span class="nav-label">Productos</span></button>
-      <button onclick="window.location.href='finanzas.html'"><span class="nav-icon">🏭</span><span class="nav-label">Proveedores</span></button>
       <button onclick="go('clientes',this)"><span class="nav-icon">👥</span><span class="nav-label">Clientes</span></button>
       <button onclick="go('vendedores',this)"><span class="nav-icon">👨‍💼</span><span class="nav-label">Vendedores</span></button>
       <button onclick="go('comisiones',this)"><span class="nav-icon">💰</span><span class="nav-label">Comisiones</span></button>
@@ -849,6 +850,13 @@ function toast(msg, tipo='', duracion=3500){
           <datalist id="productosSugeridos"></datalist>
           <input id="quickQty" type="number" min="1" value="1" placeholder="Cantidad" onkeydown="if(event.key==='Enter') addQuickProduct()">
           <button class="btn" onclick="addQuickProduct()">Agregar</button>
+        </div>
+        <button class="btn secondary" type="button" onclick="toggleProductoPersonalizado()" aria-controls="productoPersonalizadoCampos" aria-expanded="false" id="btnProductoPersonalizado">+ Producto personalizado</button>
+        <div id="productoPersonalizadoCampos" class="quick-box" style="display:none;margin-top:10px">
+          <input id="personalizadoNombre" placeholder="Nombre o descripción del producto" aria-label="Nombre del producto personalizado" onkeydown="if(event.key==='Enter') agregarProductoPersonalizado()">
+          <input id="personalizadoCantidad" type="number" min="1" step="1" value="1" placeholder="Cantidad" aria-label="Cantidad del producto personalizado" onkeydown="if(event.key==='Enter') agregarProductoPersonalizado()">
+          <input id="personalizadoPrecio" type="number" min="0" step="0.01" placeholder="Precio unitario" aria-label="Precio unitario del producto personalizado" onkeydown="if(event.key==='Enter') agregarProductoPersonalizado()">
+          <button class="btn" type="button" onclick="agregarProductoPersonalizado()">Agregar al pedido</button>
         </div>
         <table class="order-table">
           <thead>
@@ -2216,6 +2224,31 @@ function addQuickProduct(){
   document.getElementById("quickQty").value=1;
   renderPedidoActual();
 }
+function toggleProductoPersonalizado(){
+  const campos = document.getElementById("productoPersonalizadoCampos");
+  const abrir = campos.style.display === "none";
+  campos.style.display = abrir ? "grid" : "none";
+  document.getElementById("btnProductoPersonalizado").setAttribute("aria-expanded", String(abrir));
+  if(abrir) document.getElementById("personalizadoNombre").focus();
+}
+function agregarProductoPersonalizado(){
+  const nombre = document.getElementById("personalizadoNombre").value.trim();
+  const cantidad = Number(document.getElementById("personalizadoCantidad").value);
+  const precioTexto = document.getElementById("personalizadoPrecio").value.trim();
+  const precio = Number(precioTexto);
+  if(!nombre) return toast("Escribí el nombre del producto personalizado.", "error");
+  if(!Number.isSafeInteger(cantidad) || cantidad < 1) return toast("Ingresá una cantidad válida.", "error");
+  if(precioTexto === "" || !Number.isFinite(precio) || precio < 0) return toast("Ingresá un precio unitario válido.", "error");
+  pedidoActual.push(recalcularLinea({
+    sku:"PERSONALIZADO", nombre, cantidad, precio,
+    descuento_porcentaje:descuentoPorDefecto(), codigo_barras:"", comision_diferida:false
+  }));
+  document.getElementById("personalizadoNombre").value = "";
+  document.getElementById("personalizadoCantidad").value = 1;
+  document.getElementById("personalizadoPrecio").value = "";
+  renderPedidoActual();
+  document.getElementById("personalizadoNombre").focus();
+}
 function updateQty(i,v){
   pedidoActual[i].cantidad=Number(v||0);
   recalcularLinea(pedidoActual[i]);
@@ -2256,8 +2289,8 @@ function recalcularTotalesPedido(){
 function renderPedidoActual(){
   const tbody=document.getElementById("pedidoLineas");
   tbody.innerHTML=pedidoActual.map((l,i)=>`<tr>
-    <td>${l.sku}</td>
-    <td>${l.nombre}<div class="small">${l.codigo_barras||''}</div></td>
+    <td>${escapeHtml(l.sku)}</td>
+    <td>${escapeHtml(l.nombre)}<div class="small">${escapeHtml(l.codigo_barras||'')}</div></td>
     <td><input type="number" min="1" value="${l.cantidad}" onchange="updateQty(${i},this.value)"></td>
     <td><input type="number" min="0" step="0.01" value="${Number(l.precio||0)}" onchange="updatePrecio(${i},this.value)" onfocus="this.select()"></td>
     <td><input type="number" min="0" step="0.01" value="${lineDiscount(l)}" onchange="updateDescuentoLinea(${i},this.value)" onfocus="this.select()"></td>
@@ -2534,6 +2567,11 @@ function limpiarPedido(){
   const ref = document.getElementById("pReferido"); if(ref) ref.value = "";
   const pctDif = document.getElementById("pComisionDiferidaPct"); if(pctDif) pctDif.value = 5;
   document.getElementById("quickQty").value=1;
+  document.getElementById("personalizadoNombre").value="";
+  document.getElementById("personalizadoCantidad").value=1;
+  document.getElementById("personalizadoPrecio").value="";
+  document.getElementById("productoPersonalizadoCampos").style.display="none";
+  document.getElementById("btnProductoPersonalizado").setAttribute("aria-expanded", "false");
   document.getElementById("pEstado").value="Pendiente";
   const desc = document.getElementById("pDescuento"); if(desc) desc.value = 0;
   const descPreset = document.getElementById("pDescuentoPreset"); if(descPreset) descPreset.value = "0";
