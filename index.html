@@ -2213,10 +2213,19 @@ function updateDescuentoLinea(i,v){
   renderPedidoActual();
 }
 function addQuickProduct(){
-  const q=document.getElementById("quickProduct").value;
+  const q=document.getElementById("quickProduct").value.trim();
   const qty=Number(document.getElementById("quickQty").value||1);
+  if(!q) return toast("Escribí un producto o buscá por SKU.", "error");
   const p=findProduct(q);
-  if(!p) return toast("No encontré el producto.", "error");
+  if(!p){
+    const campos=document.getElementById("productoPersonalizadoCampos");
+    campos.style.display="grid";
+    document.getElementById("btnProductoPersonalizado").setAttribute("aria-expanded", "true");
+    document.getElementById("personalizadoNombre").value=q;
+    document.getElementById("personalizadoCantidad").value=Number.isSafeInteger(qty)&&qty>0 ? qty : 1;
+    document.getElementById("personalizadoPrecio").focus();
+    return toast("Producto fuera del catálogo: completá el precio y agregalo al pedido.");
+  }
   const existing=pedidoActual.find(x=>x.sku==p.sku);
   if(existing){existing.cantidad += qty; recalcularLinea(existing)}
   else pedidoActual.push(recalcularLinea({sku:p.sku,nombre:p.nombre,cantidad:qty,precio:Number(p.precio||0),descuento_porcentaje:descuentoPorDefecto(),codigo_barras:p.codigo_barras||'',comision_diferida:!!p.comision_diferida}));
