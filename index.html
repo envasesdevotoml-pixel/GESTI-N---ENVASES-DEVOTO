@@ -1170,9 +1170,14 @@ function toast(msg, tipo='', duracion=3500){
         <div class="commission-filters">
           <select id="fComVendedor" onchange="renderComisiones()"></select>
           <input id="fComMes" type="month" onchange="renderComisiones()">
+          <select id="fComCobro" onchange="renderComisiones()" aria-label="Cobro del pedido">
+            <option value="">Todos los pedidos</option>
+            <option value="Cobrado">Pedidos cobrados</option>
+            <option value="No cobrado">Pedidos no cobrados</option>
+          </select>
           <select id="fComEstado" onchange="renderComisiones()">
-            <option value="">Todas</option>
-            <option value="Pendiente">Pendientes</option>
+            <option value="">Todos los pagos al vendedor</option>
+            <option value="Pendiente">Comisiones pendientes</option>
             <option value="Parcial">Parciales</option>
             <option value="Pagada">Pagadas</option>
           </select>
@@ -1180,13 +1185,14 @@ function toast(msg, tipo='', duracion=3500){
           <button class="btn success" onclick="pagarComisionesFiltradas()">Marcar filtradas como pagadas</button>
           <button class="btn secondary" onclick="limpiarFiltrosComisiones()">Limpiar filtros</button>
         </div>
-        <div class="small">Las comisiones se calculan por pedido usando el % cargado en cada vendedor. Base comisión = Subtotal - Descuento. El ajuste % no suma comisión. Ahora se pueden registrar pagos parciales manuales: el sistema muestra comisión generada, pagado y saldo pendiente.</div>
+        <div class="small">Las comisiones se calculan por pedido usando el % cargado en cada vendedor. Base comisión = Subtotal - Descuento. El ajuste % no suma comisión. La comisión se habilita cuando el pedido está totalmente cobrado, según Cuenta Corriente. Los cobros parciales todavía no habilitan el pago. El saldo a pagar descuenta los pagos ya registrados al vendedor.</div>
       </div>
       <div class="grid">
         <div class="card"><div class="metric-title">Ventas filtradas</div><div class="metric-value" id="comVentasFiltradas">$0</div></div>
         <div class="card"><div class="metric-title">Comisión generada</div><div class="metric-value" id="comGenerada">$0</div></div>
-        <div class="card"><div class="metric-title">Pagado</div><div class="metric-value" id="comPagada">$0</div></div>
-        <div class="card"><div class="metric-title">Pendiente</div><div class="metric-value" id="comPendiente">$0</div></div>
+        <div class="card"><div class="metric-title">Pagado al vendedor</div><div class="metric-value" id="comPagada">$0</div></div>
+        <div class="card"><div class="metric-title">Comisión a pagar · pedidos cobrados</div><div class="metric-value" id="comPendiente">$0</div></div>
+        <div class="card"><div class="metric-title">Comisión pendiente de cobro del pedido</div><div class="metric-value" id="comPendienteCobro">$0</div></div>
       </div>
       <div class="card">
         <h2>Resumen por vendedor</h2>
@@ -4398,9 +4404,15 @@ function fechaPagoComisionPedido(p, key){
   return comisionesPagas[key || p.id]?.fecha || (!key ? (p.comision_pagada_fecha || p.commission_paid_at || "") : "");
 }
 
+function cobranzaParaComision(p){
+  const info = infoCobranzaPedido(p);
+  const cobrado = String(p.estado||"") !== "Cancelado" && info.estado === "Cobrado";
+  return {pedido_cobrado:cobrado, cobro_estado:cobrado ? "Cobrado" : (info.estado === "Parcial" ? "Cobro parcial" : "No cobrado")};
+}
 function calcComisionesDetalle(){
   const out = [];
   pedidos.forEach(p=>{
+    const cobranza = cobranzaParaComision(p);
     const pct = porcentajeComisionPedido(p);
     const base = baseComisionPedido(p);
     const importe = base * pct / 100;
@@ -4410,6 +4422,7 @@ function calcComisionesDetalle(){
     out.push({
       comision_key:keyNormal,
       tipo:"Normal",
+      ...cobranza,
       pedido_id:p.id,
       fecha:p.fecha,
       mes:String(p.fecha||"").slice(0,7),
@@ -4440,6 +4453,7 @@ function calcComisionesDetalle(){
       out.push({
         comision_key:keyDif,
         tipo:"Diferida",
+        ...cobranza,
         pedido_id:p.id,
         fecha:p.fecha,
         mes:String(p.fecha||"").slice(0,7),
@@ -4489,11 +4503,13 @@ function comisionesFiltradas(){
   const vendedor = document.getElementById("fComVendedor")?.value || "";
   const mes = document.getElementById("fComMes")?.value || "";
   const estado = document.getElementById("fComEstado")?.value || "";
+  const cobro = document.getElementById("fComCobro")?.value || "";
   return calcComisionesDetalle().filter(c=>{
     const matchVendedor = !vendedor || c.vendedor_id==vendedor || c.vendedor==vendedor;
     const matchMes = !mes || c.mes===mes;
     const matchEstado = !estado || c.estado===estado;
-    return matchVendedor && matchMes && matchEstado;
+    const matchCobro = !cobro || (cobro === "Cobrado" ? c.pedido_cobrado : !c.pedido_cobrado);
+    return matchVendedor && matchMes && matchEstado && matchCobro;
   });
 }
 
@@ -4511,24 +4527,30 @@ function renderComisiones(){
   const ventas = Object.values(pedidosUnicosVentas).reduce((a,v)=>a+Number(v||0),0);
   const generada = detalle.reduce((a,c)=>a+c.importe,0);
   const pagada = detalle.reduce((a,c)=>a+c.pagado,0);
-  const pendiente = detalle.reduce((a,c)=>a+c.saldo,0);
+  const pendiente = detalle.filter(c=>c.pedido_cobrado).reduce((a,c)=>a+c.saldo,0);
+  const pendienteCobro = detalle.filter(c=>!c.pedido_cobrado).reduce((a,c)=>a+c.importe,0);
 
   const setText = (id,val)=>{ const el=document.getElementById(id); if(el) el.innerText=money(val); };
   setText("comVentasFiltradas", ventas);
   setText("comGenerada", generada);
   setText("comPagada", pagada);
   setText("comPendiente", pendiente);
+  setText("comPendienteCobro", pendienteCobro);
 
   const resumen = {};
   detalle.forEach(c=>{
     const key = c.vendedor_id || c.vendedor;
-    if(!resumen[key]) resumen[key]={vendedor:c.vendedor,pedidos:0,total:0,base:0,importe:0,pagado:0,pendiente:0};
-    resumen[key].pedidos++;
-    resumen[key].total += c.total;
+    if(!resumen[key]) resumen[key]={vendedor:c.vendedor,pedidos:0,total:0,base:0,importe:0,pagado:0,pendiente:0,pendienteCobro:0,ids:new Set()};
+    if(!resumen[key].ids.has(String(c.pedido_id))){
+      resumen[key].ids.add(String(c.pedido_id));
+      resumen[key].pedidos++;
+      resumen[key].total += c.total;
+    }
     resumen[key].base += c.base;
     resumen[key].importe += c.importe;
     resumen[key].pagado += c.pagado;
-    resumen[key].pendiente += c.saldo;
+    if(c.pedido_cobrado) resumen[key].pendiente += c.saldo;
+    else resumen[key].pendienteCobro += c.importe;
   });
 
   const resumenRows = Object.values(resumen).map(r=>[
@@ -4538,11 +4560,12 @@ function renderComisiones(){
     money(r.base),
     money(r.importe),
     `<span class="badge green">${money(r.pagado)}</span>`,
-    `<span class="badge yellow">${money(r.pendiente)}</span>`
+    `<span class="badge green">${money(r.pendiente)}</span>`,
+    `<span class="badge yellow">${money(r.pendienteCobro)}</span>`
   ]);
   const tablaResumen = document.getElementById("tablaResumenComisiones");
   if(tablaResumen){
-    tablaResumen.innerHTML = table(["Vendedor","Pedidos","Total final","Base comisión","Comisión total","Pagado","Pendiente"], resumenRows);
+    tablaResumen.innerHTML = table(["Vendedor","Pedidos","Total final","Base comisión","Comisión total","Pagado al vendedor","Comisión a pagar · cobrados","Comisión pendiente de cobro"], resumenRows);
   }
 
   // Agrupar normal + diferida por pedido en una sola fila
@@ -4561,9 +4584,10 @@ function renderComisiones(){
       if(!com) return '-';
       const key = String(com.comision_key || com.pedido_id || '');
       const keyAttr = key.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const bloqueo = com.pedido_cobrado ? "" : 'disabled title="El pedido debe estar totalmente cobrado"';
       return `<div style="display:flex;gap:5px;flex-wrap:wrap">
-        <button type="button" class="btn success" style="font-size:12px;padding:7px 10px" data-com-accion="registrar" data-com-key="${keyAttr}">Registrar pago</button>
-        <button type="button" class="btn secondary" style="font-size:12px;padding:7px 10px" data-com-accion="saldo" data-com-key="${keyAttr}">Pagar saldo</button>
+        <button type="button" class="btn success" style="font-size:12px;padding:7px 10px" ${bloqueo} data-com-accion="registrar" data-com-key="${keyAttr}">Registrar pago</button>
+        <button type="button" class="btn secondary" style="font-size:12px;padding:7px 10px" ${bloqueo} data-com-accion="saldo" data-com-key="${keyAttr}">Pagar saldo</button>
         <button type="button" class="btn secondary" style="font-size:12px;padding:7px 10px" data-com-accion="ver" data-com-key="${keyAttr}">Ver pagos</button>
         ${com.pagado>0||com.estado==="Pagada" ? `<button type="button" class="btn danger" style="font-size:12px;padding:7px 10px" data-com-accion="reset" data-com-key="${keyAttr}">Reset</button>` : ""}
       </div>`;
@@ -4583,6 +4607,7 @@ function renderComisiones(){
       c.fecha ? new Date(c.fecha).toLocaleDateString("es-AR") : "",
       "#"+c.pedido_id,
       c.cliente,
+      `<span class="badge ${c.pedido_cobrado ? "green" : "yellow"}">${c.cobro_estado}</span>`,
       n ? n.vendedor : "-",
       money(c.total),
       n ? money(n.base) : "-",
@@ -4596,7 +4621,7 @@ function renderComisiones(){
   });
 
   document.getElementById("tablaComisiones").innerHTML=table(
-    ["Fecha","Pedido","Cliente","Vendedor","Total","Base","%","Comisión","Pagado","Saldo","Estado","Acción"],
+    ["Fecha","Pedido","Cliente","Cobro del pedido","Vendedor","Total","Base","%","Comisión","Pagado al vendedor","Saldo comisión","Estado comisión","Acción"],
     filas
   );
   renderHistorialComisiones();
@@ -4686,6 +4711,7 @@ async function agregarPagoComision(pedidoId, importe, nota){
     String(c.comision_key)===String(pedidoId)+"__normal" ||
     String(c.comision_key)===String(pedidoId)+"__dif"
   );
+  if(!detalle?.pedido_cobrado) return toast("El pedido debe estar totalmente cobrado para pagar la comisión.", "warning");
   const generado = Number(detalle?.importe || 0);
   const saldoActual = Number(detalle?.saldo || generado);
   const monto = Math.min(Number(importe||0), saldoActual);
@@ -4741,6 +4767,7 @@ async function agregarPagoComision(pedidoId, importe, nota){
 async function registrarPagoComisionManual(pedidoId){
   const detalle = calcComisionesDetalle().find(c=>String(c.comision_key||c.pedido_id)===String(pedidoId));
   if(!detalle) return;
+  if(!detalle.pedido_cobrado) return toast("El pedido debe estar totalmente cobrado para pagar la comisión.", "warning");
   if(detalle.saldo <= 0) return toast("Esta comisión ya está pagada.");
 
   const valor = prompt(`Comisión de ${detalle.vendedor}\nGenerada: ${money(detalle.importe)}\nPagado: ${money(detalle.pagado)}\nSaldo: ${money(detalle.saldo)}\n\nIngrese importe a pagar:`);
@@ -4763,7 +4790,7 @@ function verPagosComision(pedidoId){
 }
 
 async function pagarComisionesFiltradas(){
-  const pendientes = comisionesFiltradas().filter(c=>c.saldo > 0);
+  const pendientes = comisionesFiltradas().filter(c=>c.pedido_cobrado && c.saldo > 0);
   if(!pendientes.length) return toast("No hay saldo pendiente con esos filtros.");
   if(!confirm(`Pagar el saldo de ${pendientes.length} comisión/es filtradas?`)) return;
 
@@ -4794,7 +4821,7 @@ async function registrarPagoGeneralComision(){
   const vendedorNombre = vendedorObj?.nombre || vendedorKey;
 
   const pendientes = calcComisionesDetalle()
-    .filter(c => (String(c.vendedor_id||c.vendedor)===String(vendedorKey) || String(c.vendedor)===String(vendedorNombre)) && c.saldo > 0)
+    .filter(c => (String(c.vendedor_id||c.vendedor)===String(vendedorKey) || String(c.vendedor)===String(vendedorNombre)) && c.pedido_cobrado && c.saldo > 0)
     .sort((a,b)=>{
       const fa = new Date(a.fecha || 0).getTime();
       const fb = new Date(b.fecha || 0).getTime();
@@ -4802,7 +4829,7 @@ async function registrarPagoGeneralComision(){
       return Number(a.pedido_id||0) - Number(b.pedido_id||0);
     });
 
-  if(!pendientes.length) return toast(`No hay comisiones pendientes para ${vendedorNombre}.`);
+  if(!pendientes.length) return toast(`No hay comisiones a pagar de pedidos cobrados para ${vendedorNombre}.`);
 
   const totalPendiente = pendientes.reduce((a,c)=>a+c.saldo,0);
   const valor = prompt(`Pago general a ${vendedorNombre}\n\nSaldo pendiente total: ${money(totalPendiente)}\nPedidos pendientes/parciales: ${pendientes.length}\n\nIngrese importe pagado:`);
@@ -4899,6 +4926,8 @@ function limpiarFiltrosComisiones(){
   if(v) v.value = "";
   if(m) m.value = "";
   if(e) e.value = "";
+  const cobro = document.getElementById("fComCobro");
+  if(cobro) cobro.value = "";
   renderComisiones();
 }
 
@@ -6147,3 +6176,4 @@ init();
 </script>
 </body>
 </html>
+
