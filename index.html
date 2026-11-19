@@ -5671,6 +5671,7 @@ function estilosDocumento(){
       th{background:#16b886;color:white;font-weight:900;padding:6px;border:1px solid #e5e5e5;text-align:left;font-size:10px}
       td{padding:5px 6px;border:1px solid #e5e5e5;vertical-align:top;font-size:10px}
       .num{text-align:right;white-space:nowrap}
+      .remito-ean{margin-top:2px;color:#334155;font-size:8.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
       .center{text-align:center}
       .check{width:26px;text-align:center;font-size:16px;line-height:1}
       .totales{width:280px;margin-left:auto;margin-top:10px}
@@ -5745,14 +5746,22 @@ function documentoRemitoGenerico(p, lineas, completo=true){
   const totalFinal = totalGuardado || Math.max(0, subtotalFinal + ajuste);
   const tieneDescuento = lineasCalculadas.some(x=>Number(x.descuentoLinea||0) > 0.01);
 
+  const codigosPorSku = new Map(productos.map(item=>[
+    String(item.sku || "").trim().toUpperCase(),item.codigo_barras
+  ]));
   const rows = lineasCalculadas.map(x=>{
     const l = x.l;
+    const sku = String(l.sku || "").trim();
+    const ean = [l.codigo_barras,codigosPorSku.get(sku.toUpperCase())]
+      .map(valor=>String(valor ?? "").trim().replace(/[ \-]/g,""))
+      .find(valor=>/^(?:\d{8}|\d{13})$/.test(valor));
+    const celdaSku = escapeHtml(sku) + (ean ? `<div class="remito-ean">EAN ${ean}</div>` : "");
     const descTextoLinea = x.descuentoLinea ? (Number(x.descuentoLinea).toFixed(2).replace('.00','').replace('.', ',') + '%') : '-';
 
     if(tieneDescuento){
       return `
         <tr>
-          <td>${escapeHtml(l.sku||'')}</td>
+          <td>${celdaSku}</td>
           <td>${escapeHtml(l.producto || l.nombre || '')}</td>
           <td class="num">${escapeHtml(x.cantidad||'')}</td>
           <td class="num">${money(x.precioLista)}</td>
@@ -5764,7 +5773,7 @@ function documentoRemitoGenerico(p, lineas, completo=true){
 
     return `
       <tr>
-        <td>${escapeHtml(l.sku||'')}</td>
+        <td>${celdaSku}</td>
         <td>${escapeHtml(l.producto || l.nombre || '')}</td>
         <td class="num">${escapeHtml(x.cantidad||'')}</td>
         <td class="num">${money(x.precioLista)}</td>
@@ -5783,8 +5792,8 @@ function documentoRemitoGenerico(p, lineas, completo=true){
     </div>` : `<div></div>`;
 
   const encabezadoTabla = tieneDescuento
-    ? `<tr><th style="width:70px">SKU</th><th>Producto</th><th style="width:55px">Cant.</th><th style="width:88px">P. Lista</th><th style="width:62px">Desc.</th><th style="width:88px">P. Final</th><th style="width:92px">Subtotal</th></tr>`
-    : `<tr><th style="width:80px">SKU</th><th>Producto</th><th style="width:60px">Cant.</th><th style="width:92px">P. Unit.</th><th style="width:92px">Subtotal</th></tr>`;
+    ? `<tr><th style="width:98px">SKU / EAN</th><th>Producto</th><th style="width:55px">Cant.</th><th style="width:88px">P. Lista</th><th style="width:62px">Desc.</th><th style="width:88px">P. Final</th><th style="width:92px">Subtotal</th></tr>`
+    : `<tr><th style="width:98px">SKU / EAN</th><th>Producto</th><th style="width:60px">Cant.</th><th style="width:92px">P. Unit.</th><th style="width:92px">Subtotal</th></tr>`;
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>${completo ? 'Remito ' : ''}${escapeHtml(p?.id||'')}</title>${estilosDocumento()}</head><body>
     <div class="no-print"><button class="print-btn" onclick="window.print()">Imprimir / Guardar PDF</button></div>
