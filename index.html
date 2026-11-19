@@ -587,6 +587,14 @@
     /* Acciones de pedidos */
     .order-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;white-space:nowrap;position:relative}
     .order-actions>.btn{padding:8px 11px;font-size:12px}
+    #dialogFichas{width:min(620px,calc(100% - 28px));max-height:90vh;padding:22px;border:1px solid #d9d9df;border-radius:12px;background:var(--bg);color:var(--text)}
+    #dialogFichas::backdrop{background:#18203399}
+    #dialogFichas h2{margin:0 0 10px}
+    #dialogFichas .fichas-tabla{max-height:44vh;overflow:auto;margin:12px 0}
+    #dialogFichas th,#dialogFichas td{padding:8px;text-align:left}
+    #dialogFichas input{width:85px}
+    #dialogFichas .fichas-acciones{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+    #dialogFichas [hidden]{display:none!important}
     .action-menu{position:relative;display:inline-block}
     .action-menu>summary{list-style:none;width:38px;height:34px;display:grid;place-items:center;border:1px solid var(--line);border-radius:10px;background:#fff;color:#334155;font-size:21px;font-weight:900;cursor:pointer;user-select:none;box-shadow:0 3px 8px rgba(15,23,42,.06)}
     .action-menu>summary::-webkit-details-marker{display:none}
@@ -3705,6 +3713,7 @@ async function renderPreparacionDeposito(){
 
         <div class="prep-actions">
           <button id="btn_preparado_${p.id}" class="btn big success ${listo ? "" : "disabled"}" ${listo ? "" : "disabled"} onclick="marcarPreparado(${p.id})">${listo ? "Marcar preparado" : "Faltan productos"}</button>
+          <button class="btn big secondary" onclick="imprimirFichasPedido(${p.id})">Imprimir fichas de empaque</button>
           <button class="btn big secondary" onclick="verPreparacion(${p.id})">Ver administrativo</button>
         </div>
       </div>
@@ -5874,6 +5883,10 @@ async function exportarPedidoSimple(id){
   abrirDocumentoImprimible('Documento simple', documentoRemitoSimple(pedido, lineas));
 }
 
+function imprimirFichasPedido(id){
+  FichasEmpaque.abrir(id,()=>obtenerLineasPedido(id));
+}
+
 async function duplicarPedido(id){
   const pedido = pedidos.find(p=>String(p.id)===String(id));
   if(!pedido) return toast("No encontré el pedido para duplicar.", "error");
@@ -5978,7 +5991,7 @@ function renderPedidoTable(data){
       (Number(p.descuento_porcentaje||0) ? Number(p.descuento_porcentaje||0)+'%' : '-'),
       (ajusteImportePedido(p) ? money(ajusteImportePedido(p)) : '-'),
       money(p.total),
-      `<div class="order-actions"><button class="btn" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button>${clienteIdPedido(p)?`<button class="btn secondary" onclick='abrirCuentaCliente(${JSON.stringify(clienteIdPedido(p))})'>Cuenta</button>`:''}<details class="action-menu"><summary title="Más acciones">⋯</summary><div class="action-menu-panel"><button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button><button class="btn secondary" onclick='abrirRemito(${JSON.stringify(p.id)})'>Remito completo</button><button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button><button class="btn secondary" onclick='duplicarPedido(${JSON.stringify(p.id)})'>Duplicar</button><button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button>${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}</div></details></div>`
+      `<div class="order-actions"><button class="btn" onclick='editarPedido(${JSON.stringify(p.id)})'>Editar</button>${clienteIdPedido(p)?`<button class="btn secondary" onclick='abrirCuentaCliente(${JSON.stringify(clienteIdPedido(p))})'>Cuenta</button>`:''}<details class="action-menu"><summary title="Más acciones">⋯</summary><div class="action-menu-panel"><button class="btn secondary" onclick='verPreparacion(${JSON.stringify(p.id)})'>Preparación</button><button class="btn secondary" onclick='abrirRemito(${JSON.stringify(p.id)})'>Remito completo</button><button class="btn secondary" onclick='exportarPedidoSimple(${JSON.stringify(p.id)})'>Remito simple</button><button class="btn secondary" onclick='imprimirFichasPedido(${JSON.stringify(p.id)})'>Imprimir fichas de empaque</button><button class="btn secondary" onclick='duplicarPedido(${JSON.stringify(p.id)})'>Duplicar</button><button class="btn secondary" onclick='verHistorialPedido(${JSON.stringify(p.id)})'>Historial</button>${currentUser?.rol === 'admin' ? `<button class="btn danger" onclick='eliminarPedidoConPassword(${JSON.stringify(p.id)})'>Eliminar</button>` : ''}</div></details></div>`
     ];
   }));
 }
@@ -6000,6 +6013,7 @@ async function verPreparacion(id){
       <button class="btn secondary" onclick="descargarPreparacionLimpia(${JSON.stringify(id)})">Imprimir preparación</button>
       <button class="btn secondary" onclick="abrirRemito(${JSON.stringify(id)})">Remito completo</button>
       <button class="btn secondary" onclick="exportarPedidoSimple(${JSON.stringify(id)})">Remito simple</button>
+      <button class="btn secondary" onclick="imprimirFichasPedido(${JSON.stringify(id)})">Imprimir fichas de empaque</button>
     </div>
     ${table(['Check','SKU','Producto','Cantidad'], lineas.map(l=>['☐', l.sku || '', l.producto || l.nombre || '', l.cantidad || '']))}
   `;
@@ -6214,6 +6228,28 @@ function renderListaCorte(){
 }
 init();
 </script>
+<dialog id="dialogFichas" aria-labelledby="fichasTitulo">
+  <h2 id="fichasTitulo">Imprimir fichas de empaque</h2>
+  <p id="fichasEstado" role="status"></p>
+  <form id="fichasFormulario">
+    <div class="fichas-tabla" id="fichasTabla" hidden>
+      <table>
+        <thead><tr><th>SKU</th><th>Producto</th><th>Copias</th></tr></thead>
+        <tbody id="fichasFilas"></tbody>
+      </table>
+    </div>
+    <p id="fichasResumen" aria-live="polite"></p>
+    <p id="fichasFaltantes" class="warning" hidden></p>
+    <div class="fichas-acciones">
+      <button class="btn" type="submit" id="fichasGenerar" disabled>Generar PDF</button>
+      <a class="btn success" id="fichasAbrir" target="_blank" rel="noopener" hidden>Abrir PDF para imprimir</a>
+      <a class="btn secondary" id="fichasDescargar" hidden>Descargar PDF</a>
+      <button class="btn secondary" type="button" id="fichasCerrar">Cerrar</button>
+    </div>
+  </form>
+</dialog>
+<script src="fichas-empaque/pdf-lib.min.js" defer></script>
+<script src="fichas-empaque/pedido.js" defer></script>
 </body>
 </html>
 
