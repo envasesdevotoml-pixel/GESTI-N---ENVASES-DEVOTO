@@ -3745,7 +3745,13 @@ function renderPreparacion(){
 function renderProductos(){
   const q=(document.getElementById("buscarProducto")?.value||document.getElementById("globalSearch")?.value||'').toLowerCase();
   const data=productos.filter(p=>[p.sku,p.nombre,p.codigo_barras,p.categoria].join(" ").toLowerCase().includes(q)).slice(0,250);
-  document.getElementById("tablaProductos").innerHTML=table(["SKU","Producto","Código","Precio","Categoría","Medidas"],data.map(p=>[p.sku,p.nombre,p.codigo_barras||'',money(p.precio),p.categoria||'',p.medidas||'']));
+  document.getElementById("tablaProductos").innerHTML=table(
+    ["SKU","Producto","Código","Precio","Categoría","Medidas","Ficha"],
+    data.map(p=>[
+      p.sku,p.nombre,p.codigo_barras||'',money(p.precio),p.categoria||'',p.medidas||'',
+      String(p.sku ?? "").trim() ? `<button type="button" class="btn secondary" data-sku-ficha="${escapeHtml(p.sku)}" aria-label="Imprimir ficha de ${escapeHtml(p.nombre || p.sku)}">Imprimir ficha</button>` : ""
+    ])
+  );
 }
 
 function vendedorPorIdONombre(valor){
@@ -5894,7 +5900,11 @@ async function exportarPedidoSimple(id){
 
 async function imprimirFichasPedido(id){
   try{
-    await FichasEmpaque.abrir(id,()=>obtenerLineasPedido(id));
+    await FichasEmpaque.abrir({
+      referencia:"Pedido #" + id,
+      archivo:"Fichas_pedido_" + id,
+      cargarLineas:()=>obtenerLineasPedido(id)
+    });
   }catch(error){
     console.error(error);
     toast("No se pudo abrir la impresión de fichas. Volvé a intentar.","error");
@@ -6502,11 +6512,11 @@ const FichasEmpaque = (() => {
     pdf.setLineDashPattern([],0);
   }
 
-  function armarPdf(fichas,id) {
+  function armarPdf(fichas,referencia) {
     const JsPDF=globalThis.jspdf?.jsPDF;
     if (!JsPDF) throw new Error("No se encontró el generador PDF de Gestión.");
     const pdf=new JsPDF({unit:"mm",format:"a4",orientation:"portrait",compress:true});
-    pdf.setProperties({title:"Fichas de empaque · Pedido #"+id,author:"Envases Devoto"});
+    pdf.setProperties({title:"Fichas de empaque · "+referencia,author:"Envases Devoto"});
     const preferencias=pdf.viewerPreferences;
     if (typeof preferencias === "function") preferencias.call(pdf,{PrintScaling:"None"});
     let posicion=0;
@@ -6546,16 +6556,16 @@ const FichasEmpaque = (() => {
     el("Generar").disabled = !validas || !Number.isSafeInteger(total) || total <= 0 || !!sesion?.generando;
   }
 
-  async function abrir(id, cargarLineas) {
+  async function abrir({referencia, archivo, cargarLineas}) {
     if (dialog.open) return;
-    const actual = {id, filas:[], generando:false};
+    const actual = {referencia, archivo, filas:[], generando:false};
     sesion = actual;
     quitarPdf();
     el("Filas").replaceChildren();
     el("Tabla").hidden = true;
     el("Faltantes").hidden = true;
-    el("Titulo").textContent = "Imprimir fichas de empaque · Pedido #" + id;
-    el("Estado").textContent = "Cargando productos del pedido…";
+    el("Titulo").textContent = "Imprimir fichas de empaque · " + referencia;
+    el("Estado").textContent = "Cargando datos de Tienda Mayorista…";
     actualizarResumen();
     dialog.showModal();
     try {
@@ -6582,12 +6592,12 @@ const FichasEmpaque = (() => {
       });
       el("Tabla").hidden = !actual.filas.length;
       el("Estado").textContent = actual.filas.length
-        ? "Por defecto sale una ficha por unidad. Podés cambiar las copias o poner 0 para omitir un producto."
-        : "Este pedido no tiene fichas disponibles para imprimir.";
+        ? "Podés cambiar la cantidad de copias o poner 0 para omitir un producto."
+        : "No hay fichas disponibles para imprimir.";
       actualizarResumen();
     } catch (error) {
       if (sesion !== actual) return;
-      el("Estado").textContent = "No se pudo leer el pedido o Tienda Mayorista. Cerrá y volvé a intentar.";
+      el("Estado").textContent = "No se pudieron cargar los datos para imprimir. Cerrá y volvé a intentar.";
       console.error(error);
     }
   }
@@ -6622,11 +6632,11 @@ const FichasEmpaque = (() => {
         el("Estado").textContent = "Los SKU elegidos ya no figuran en Tienda Mayorista.";
         return;
       }
-      const pdf = armarPdf(listas, actual.id);
+      const pdf = armarPdf(listas, actual.referencia);
       urlPdf = URL.createObjectURL(pdf);
       el("Abrir").href = urlPdf;
       el("Descargar").href = urlPdf;
-      el("Descargar").download = "Fichas_pedido_" + String(actual.id).replace(/[^\w-]/g,"_") + ".pdf";
+      el("Descargar").download = actual.archivo.replace(/[^\w.-]/g,"_") + ".pdf";
       el("Abrir").hidden = el("Descargar").hidden = false;
       const avisos = [];
       const faltantes = datos.filter(item => !item.ficha).map(item => item.sku);
@@ -6648,6 +6658,19 @@ const FichasEmpaque = (() => {
         actualizarResumen();
       }
     }
+  });
+  document.getElementById("tablaProductos").addEventListener("click", evento => {
+    const boton = evento.target.closest("button[data-sku-ficha]");
+    if (!boton) return;
+    const sku = boton.dataset.skuFicha;
+    abrir({
+      referencia:"SKU " + sku,
+      archivo:"Ficha_" + sku,
+      cargarLineas:() => [{sku,cantidad:1}]
+    }).catch(error => {
+      console.error(error);
+      toast("No se pudo abrir la impresión de fichas. Volvé a intentar.","error");
+    });
   });
   el("Cerrar").addEventListener("click", () => dialog.close());
   dialog.addEventListener("close", () => {
