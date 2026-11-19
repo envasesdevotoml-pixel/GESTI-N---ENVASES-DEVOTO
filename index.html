@@ -1544,6 +1544,7 @@ function init(){
 
   cargarDesdeSupabase();
   renderAll();
+  actualizarTitulosProductosGuardados();
 
   if(location.hash === "#preparacion" || location.hash === "#deposito"){
     setTimeout(()=>modoDeposito(), 700);
@@ -2138,24 +2139,34 @@ function parseCSV(text){
 function cleanPrice(v){
   return Number(String(v||'').replace(/\$/g,'').replace(/\./g,'').replace(',','.').replace(/[^\d.]/g,''))||0;
 }
-async function sincronizarProductos(){
-  try{
-    const res = await fetch(SHEETS_CSV_URL);
-    const csv = await res.text();
-    const rows = parseCSV(csv);
-    const headers = rows.shift().map(h=>h.trim().toLowerCase());
-    const find = (terms) => headers.findIndex(h => terms.some(t=>h.includes(t)));
-    const iSku=find(['sku']);
-    const iProd=find(['producto']);
-    const iCod=find(['codigo','código','barra']);
-    const iPrecio=find(['precio']);
-    const iImg=find(['imagen','url']);
-    const iCat=find(['categoria','categoría']);
-    const iMed=find(['medida']);
-    const iDif=find(['comision diferida','comisión diferida','diferida']);
-    const nuevos = rows.map(r=>({
+const VERSION_TITULOS_PRODUCTOS = "ed_productos_titulo_producto_modelo";
+
+async function leerProductosMayoristas(){
+  const res = await fetch(SHEETS_CSV_URL);
+  if(!res.ok) throw new Error("No se pudo leer Tienda Mayorista.");
+  const rows = parseCSV(await res.text());
+  const headers = (rows.shift() || []).map(h=>h.trim().toLowerCase());
+  const iSku = headers.indexOf("sku");
+  const iProd = headers.indexOf("producto");
+  const iModelo = headers.indexOf("modelo");
+  if([iSku,iProd,iModelo].some(i=>i<0)) throw new Error("Faltan columnas del catálogo mayorista.");
+  const find = terms => headers.findIndex(h=>terms.some(t=>h.includes(t)));
+  const iCod = find(['codigo','código','barra']);
+  const iPrecio = find(['precio']);
+  const iImg = find(['imagen','url']);
+  const iCat = find(['categoria','categoría']);
+  const iMed = find(['medida']);
+  const iDif = find(['comision diferida','comisión diferida','diferida']);
+
+  const filas = rows.map(r=>{
+    const producto = (r[iProd]||'').trim();
+    const modelo = (r[iModelo]||'').trim();
+    const nombre = normalizarBusqueda(producto) === normalizarBusqueda(modelo)
+      ? producto
+      : [producto,modelo].filter(Boolean).join(" ");
+    return {producto, datos:{
       sku:(r[iSku]||'').trim(),
-      nombre:(r[iProd]||'').trim(),
+      nombre,
       codigo_barras:(r[iCod]||'').trim(),
       precio:cleanPrice(r[iPrecio]),
       imagen_url:iImg>=0?(r[iImg]||'').trim():'',
@@ -2163,10 +2174,37 @@ async function sincronizarProductos(){
       medidas:iMed>=0?(r[iMed]||'').trim():'',
       comision_diferida:iDif>=0 ? /^si|sí|s|true|1$/i.test(String(r[iDif]||'').trim()) : false,
       activo:true
-    })).filter(p=>p.sku&&p.nombre);
+    }};
+  }).filter(fila=>fila.datos.sku && fila.producto);
 
-    const unicos = [...new Map(nuevos.map(p => [p.sku, p])).values()];
-    productos = unicos;
+  const porSku = new Map(filas.map(fila=>[fila.datos.sku,fila]));
+  if(!porSku.size) throw new Error("El catálogo mayorista está vacío.");
+  return porSku;
+}
+
+async function actualizarTitulosProductosGuardados(){
+  if(!productos.length || localStorage.getItem(VERSION_TITULOS_PRODUCTOS)) return;
+  try{
+    const porSku = await leerProductosMayoristas();
+    if(localStorage.getItem(VERSION_TITULOS_PRODUCTOS)) return;
+    productos = productos.map(p=>{
+      const fila = porSku.get(p.sku);
+      if(!fila || normalizarBusqueda(p.nombre)!==normalizarBusqueda(fila.producto)) return p;
+      return {...p,nombre:fila.datos.nombre};
+    });
+    localStorage.setItem("ed_productos",JSON.stringify(productos));
+    localStorage.setItem(VERSION_TITULOS_PRODUCTOS,"1");
+    actualizarSugerenciasProductos();
+    if(document.getElementById("productos")?.classList.contains("active")) renderProductos();
+  }catch(e){
+    console.warn("No se pudieron completar los títulos del catálogo guardado.",e);
+  }
+}
+
+async function sincronizarProductos(){
+  try{
+    const porSku = await leerProductosMayoristas();
+    const unicos = Array.from(porSku.values(),fila=>fila.datos);
 
     if(sb){
       const {error} = await sb.from("productos").upsert(unicos,{onConflict:"sku"});
@@ -2179,7 +2217,9 @@ async function sincronizarProductos(){
         console.warn("Productos sincronizados sin comision_diferida en Supabase. Agregá la columna productos.comision_diferida para guardarlo online.", error);
       }
     }
+    productos = unicos;
     saveLocal();
+    localStorage.setItem(VERSION_TITULOS_PRODUCTOS,"1");
     renderAll();
     toast("Productos sincronizados: " + unicos.length);
   }catch(e){toast("No se pudo sincronizar. Revisá Google Sheets o Supabase.", "error"); console.error(e)}
