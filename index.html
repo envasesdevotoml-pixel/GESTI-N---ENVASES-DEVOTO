@@ -6258,7 +6258,7 @@ init();
   <form id="fichasFormulario">
     <div class="fichas-tabla" id="fichasTabla" hidden>
       <table>
-        <thead><tr><th>SKU</th><th>Producto</th><th>Copias</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Producto</th><th>Tamaño</th><th>Copias</th></tr></thead>
         <tbody id="fichasFilas"></tbody>
       </table>
     </div>
@@ -6288,6 +6288,7 @@ const FichasEmpaque = (() => {
       throw new Error("No se encontraron las columnas de Tienda Mayorista.");
     }
     const fichas = new Map();
+    const tamanos = new Map(Object.keys(formatosFicha).map(tamano => [tamano.toLowerCase(),tamano]));
     for (const fila of filas) {
       const leer = nombre => (fila[indice(nombre)] || "").trim();
       const sku = leer("sku").toUpperCase();
@@ -6298,6 +6299,7 @@ const FichasEmpaque = (() => {
         nombre,modelo:leer("modelo"),seccion:leer("seccion") || leer("categoria"),
         descripcion:leer("descripcion"),medidas:leer("medida"),material:leer("estructura"),
         colores:leer("coloresdisponibles"),codigo:leer("codigobarra"),
+        tamano:tamanos.get(normalizarBusqueda(leer("tamanodeficha"))) || "Normal",
         etiquetas:normalizarBusqueda(leer("etiquetasincluidas")) === "si",
         fotoK:fila[10]?.trim() || "",fotoL:fila[11]?.trim() || ""
       });
@@ -6324,7 +6326,7 @@ const FichasEmpaque = (() => {
       }
       if (!disponibles.has(sku)) {
         const titulo = [ficha.nombre, ficha.modelo].filter(Boolean).join(" ");
-        disponibles.set(sku, {sku,nombre:titulo,cantidad:0});
+        disponibles.set(sku, {sku,nombre:titulo,tamano:ficha.tamano,cantidad:0});
       }
       const cantidad = Number(linea.cantidad);
       if (Number.isSafeInteger(cantidad) && cantidad > 0) disponibles.get(sku).cantidad += cantidad;
@@ -6387,6 +6389,11 @@ const FichasEmpaque = (() => {
   const gris = "#444444";
   const anchoFicha = 94;
   const altoFicha = 138.5;
+  const formatosFicha = {
+    Normal:{orientacion:"portrait",columnas:2,capacidad:4,anchoCelda:105,altoCelda:148.5,escala:1},
+    Chica:{orientacion:"landscape",columnas:4,capacidad:8,anchoCelda:74.25,altoCelda:105,escala:Math.SQRT1_2},
+    Grande:{orientacion:"landscape",columnas:2,capacidad:2,anchoCelda:148.5,altoCelda:210,escala:Math.SQRT2}
+  };
   const coloresTinta = {
     negro:"#111111", gris:"#71717A", marron:"#803A1C", cedro:"#95552D",
     blanco:"#929292", rojo:"#A61B1B", azul:"#1D4E89", verde:"#34613B",
@@ -6404,13 +6411,16 @@ const FichasEmpaque = (() => {
   function textoAjustado(pdf,valor,ancho,desde,minimo,negrita,maximo) {
     const texto = String(valor || "").replace(/\s+/g," ").trim();
     pdf.setFont("helvetica",negrita ? "bold" : "normal");
-    for (let tamano=desde; tamano>=minimo; tamano-=.5) {
+    let tamano = desde;
+    pdf.setFontSize(tamano);
+    let lineas = texto ? pdf.splitTextToSize(texto,ancho) : [];
+    while (lineas.length>maximo && tamano>minimo) {
+      tamano = Math.max(minimo,tamano-.5);
       pdf.setFontSize(tamano);
-      const lineas = texto ? pdf.splitTextToSize(texto,ancho) : [];
-      if (lineas.length<=maximo) return {lineas,tamano};
+      lineas = pdf.splitTextToSize(texto,ancho);
     }
-    pdf.setFontSize(minimo);
-    const lineas = pdf.splitTextToSize(texto,ancho).slice(0,maximo);
+    if (lineas.length<=maximo) return {lineas,tamano};
+    lineas = lineas.slice(0,maximo);
     let fin = lineas[maximo-1];
     while (pdf.getTextWidth(fin+"…")>ancho && fin.length) fin=fin.slice(0,-1);
     lineas[maximo-1]=fin.trimEnd()+"…";
@@ -6440,90 +6450,92 @@ const FichasEmpaque = (() => {
     return datos;
   }
 
-  function dibujarCodigo(pdf,codigo,x,y) {
+  function dibujarCodigo(pdf,codigo,x,y,escala) {
     const bits = codigoEan13(codigo);
     if (!bits) {
       if (codigo) {
-        const dato = textoAjustado(pdf,"EAN " + codigo,34,6.5,5.5,false,1);
-        escribir(pdf,dato.lineas[0],x,y+5,dato.tamano,{align:"center"});
+        const dato = textoAjustado(pdf,"EAN " + codigo,34*escala,6.5*escala,5.5*escala,false,1);
+        escribir(pdf,dato.lineas[0],x,y+5*escala,dato.tamano,{align:"center"});
       }
       return;
     }
-    const modulo = .31;
+    const modulo = Math.max(.264,.31*escala);
     const inicio = x - 95 * modulo / 2;
     pdf.setFillColor("#000000");
     for (const barra of bits.matchAll(/1+/g)) {
-      pdf.rect(inicio+barra.index*modulo,y,barra[0].length*modulo,7.5,"F");
+      pdf.rect(inicio+barra.index*modulo,y,barra[0].length*modulo,7.5*escala,"F");
     }
-    escribir(pdf,codigo,x,y+10,6.2,{align:"center"});
+    escribir(pdf,codigo,x,y+10*escala,Math.max(5,6.2*escala),{align:"center"});
   }
 
-  function dibujarColores(pdf,colores,x,y,ancho) {
+  function dibujarColores(pdf,colores,x,y,ancho,escala) {
     const nombres = [...new Set(colores.split(/[,;/|\n]+|\s+y\s+/i).map(nombre=>nombre.trim()).filter(Boolean))];
     if (!nombres.length) return;
     const columnas = nombres.length <= 4 ? nombres.length : Math.ceil(nombres.length/2);
     const paso = ancho / columnas;
     nombres.forEach((nombre,i)=>{
       const px = x + (i%columnas)*paso;
-      const py = y + Math.floor(i/columnas)*3.7;
+      const py = y + Math.floor(i/columnas)*3.7*escala;
       const tono = normalizarBusqueda(nombre).split(" ")[0];
       pdf.setDrawColor(coloresTinta[tono] || gris);
-      pdf.setLineWidth(.4);
-      pdf.circle(px+1.2,py-0.6,1.15,"S");
-      const texto = textoAjustado(pdf,nombre,paso-4.2,7,5.5,false,1);
-      escribir(pdf,texto.lineas[0],px+3.25,py,texto.tamano);
+      pdf.setLineWidth(.4*escala);
+      pdf.circle(px+1.2*escala,py-.6*escala,1.15*escala,"S");
+      const texto = textoAjustado(pdf,nombre,paso-4.2*escala,Math.max(5.5,7*escala),Math.max(5,5.5*escala),false,1);
+      escribir(pdf,texto.lineas[0],px+3.25*escala,py,texto.tamano);
     });
   }
 
-  function dibujarFicha(pdf, ficha, sku, foto, x, y) {
-    const centro = x+anchoFicha/2;
-    const izq = x+4;
-    const der = x+anchoFicha-4;
+  function dibujarFicha(pdf, ficha, sku, foto, x, y, escala) {
+    const mm = valor => valor*escala;
+    const ladoFoto = mm(anchoFicha);
+    const centro = x+ladoFoto/2;
+    const izq = x+mm(4);
+    const der = x+ladoFoto-mm(4);
     if (foto) {
-      pdf.addImage(foto,"JPEG",x,y,anchoFicha,anchoFicha,"foto-"+sku);
+      pdf.addImage(foto,"JPEG",x,y,ladoFoto,ladoFoto,"foto-"+sku);
     } else {
-      escribir(pdf,"Sin foto disponible",centro,y+anchoFicha/2,8,{color:gris,align:"center"});
+      escribir(pdf,"Sin foto disponible",centro,y+ladoFoto/2,mm(8),{color:gris,align:"center"});
     }
 
-    const pieFoto = y+anchoFicha;
-    const titulo = textoAjustado(pdf,ficha.nombre.toUpperCase(),der-izq,17,8,true,1);
-    escribir(pdf,titulo.lineas[0],centro,pieFoto+5.5,titulo.tamano,{negrita:true,color:marron,align:"center"});
+    const pieFoto = y+ladoFoto;
+    const titulo = textoAjustado(pdf,ficha.nombre.toUpperCase(),der-izq,mm(17),Math.max(6,mm(8)),true,1);
+    escribir(pdf,titulo.lineas[0],centro,pieFoto+mm(5.5),titulo.tamano,{negrita:true,color:marron,align:"center"});
     if (ficha.modelo && normalizarBusqueda(ficha.nombre)!==normalizarBusqueda(ficha.modelo)) {
-      const modelo = textoAjustado(pdf,ficha.modelo.toUpperCase(),der-izq,15,8,true,1);
-      escribir(pdf,modelo.lineas[0],centro,pieFoto+10.2,modelo.tamano,{negrita:true,color:ocre,align:"center"});
+      const modelo = textoAjustado(pdf,ficha.modelo.toUpperCase(),der-izq,mm(15),Math.max(6,mm(8)),true,1);
+      escribir(pdf,modelo.lineas[0],centro,pieFoto+mm(10.2),modelo.tamano,{negrita:true,color:ocre,align:"center"});
     }
 
     const datos = datosFicha(ficha);
     if (datos.length>2) {
       pdf.setDrawColor(ocre);
-      pdf.setLineWidth(.18);
-      pdf.line(izq,pieFoto+19.1,der,pieFoto+19.1);
+      pdf.setLineWidth(mm(.18));
+      pdf.line(izq,pieFoto+mm(19.1),der,pieFoto+mm(19.1));
     }
-    const anchoColumna = (der-izq-4)/2;
+    const anchoColumna = (der-izq-mm(4))/2;
     datos.forEach(([etiqueta,detalle],i)=>{
-      const dx = i%2 ? centro+2 : izq;
-      const dy = pieFoto+13.6+Math.floor(i/2)*7.6;
-      escribir(pdf,etiqueta.toUpperCase(),dx,dy,5.7,{negrita:true,color:marron});
-      const dato = textoAjustado(pdf,detalle,anchoColumna,7.5,6.2,false,2);
-      dato.lineas.forEach((linea,j)=>escribir(pdf,linea,dx,dy+2.65+j*2.35,dato.tamano));
+      const dx = i%2 ? centro+mm(2) : izq;
+      const dy = pieFoto+mm(13.6+Math.floor(i/2)*7.6);
+      escribir(pdf,etiqueta.toUpperCase(),dx,dy,Math.max(4.8,mm(5.7)),{negrita:true,color:marron});
+      const dato = textoAjustado(pdf,detalle,anchoColumna,Math.max(5.5,mm(7.5)),Math.max(5,mm(6.2)),false,2);
+      dato.lineas.forEach((linea,j)=>escribir(pdf,linea,dx,dy+mm(2.65+j*2.35),dato.tamano));
     });
-    dibujarColores(pdf,ficha.colores,izq,pieFoto+29.5,der-izq);
+    dibujarColores(pdf,ficha.colores,izq,pieFoto+mm(29.5),der-izq,escala);
 
-    pdf.addImage(logoFichas,"PNG",izq,pieFoto+34.4,31,6.14,"logo-envases");
-    escribir(pdf,"Industria Argentina",izq+15.5,pieFoto+43,6,{color:gris,align:"center"});
-    escribir(pdf,"SKU",centro-1,pieFoto+38,5.8,{negrita:true,color:marron,align:"center"});
-    const codigoSku = textoAjustado(pdf,sku,16,7,5.5,true,1);
-    escribir(pdf,codigoSku.lineas[0],centro-1,pieFoto+41,codigoSku.tamano,{negrita:true,align:"center"});
-    dibujarCodigo(pdf,ficha.codigo,der-17.5,pieFoto+34.1);
+    pdf.addImage(logoFichas,"PNG",izq,pieFoto+mm(34.4),mm(31),mm(6.14),"logo-envases");
+    escribir(pdf,"Industria Argentina",izq+mm(15.5),pieFoto+mm(43),Math.max(5,mm(6)),{color:gris,align:"center"});
+    escribir(pdf,"SKU",centro-mm(1),pieFoto+mm(38),Math.max(4.8,mm(5.8)),{negrita:true,color:marron,align:"center"});
+    const codigoSku = textoAjustado(pdf,sku,mm(16),Math.max(5.5,mm(7)),Math.max(5,mm(5.5)),true,1);
+    escribir(pdf,codigoSku.lineas[0],centro-mm(1),pieFoto+mm(41),codigoSku.tamano,{negrita:true,align:"center"});
+    dibujarCodigo(pdf,ficha.codigo,der-mm(17.5),pieFoto+mm(34.1),escala);
   }
 
-  function dibujarGuias(pdf,x,y) {
+  function dibujarGuias(pdf,x,y,ancho,alto) {
     pdf.setDrawColor("#95a4b1");
     pdf.setLineWidth(.14);
     for (const dx of [-1,1]) {
       for (const dy of [-1,1]) {
-        const bordeX = dx<0 ? x : x+anchoFicha;
-        const bordeY = dy<0 ? y : y+altoFicha;
+        const bordeX = dx<0 ? x : x+ancho;
+        const bordeY = dy<0 ? y : y+alto;
         pdf.line(bordeX+dx*.5,bordeY,bordeX+dx*2.5,bordeY);
         pdf.line(bordeX,bordeY+dy*.5,bordeX,bordeY+dy*2.5);
       }
@@ -6533,22 +6545,29 @@ const FichasEmpaque = (() => {
   function armarPdf(fichas,referencia) {
     const JsPDF=globalThis.jspdf?.jsPDF;
     if (!JsPDF) throw new Error("No se encontró el generador PDF de Gestión.");
-    const pdf=new JsPDF({unit:"mm",format:"a4",orientation:"portrait",compress:true});
+    const grupos = Object.entries(formatosFicha).map(([tamano, formato]) => ({
+      formato,
+      items:fichas.filter(item => item.ficha.tamano === tamano)
+    })).filter(grupo => grupo.items.length);
+    const pdf=new JsPDF({unit:"mm",format:"a4",orientation:grupos[0].formato.orientacion,compress:true});
     pdf.setProperties({title:"Fichas de empaque · "+referencia,author:"Envases Devoto"});
-    const preferencias=pdf.viewerPreferences;
-    if (typeof preferencias === "function") preferencias.call(pdf,{PrintScaling:"None"});
-    let posicion=0;
-    for (const {ficha,sku,cantidad,foto} of fichas) {
-      for (let copia=0;copia<cantidad;copia++) {
-        const cuadro=posicion%4;
-        if (!cuadro) {
-          if (posicion) pdf.addPage("a4","portrait");
+    if (typeof pdf.viewerPreferences === "function") pdf.viewerPreferences({PrintScaling:"None"});
+
+    for (const [indice,{formato,items}] of grupos.entries()) {
+      const {orientacion,columnas,capacidad,anchoCelda,altoCelda,escala} = formato;
+      const ancho = anchoFicha*escala;
+      const alto = altoFicha*escala;
+      let posicion=0;
+      for (const {ficha,sku,cantidad,foto} of items) {
+        for (let copia=0;copia<cantidad;copia++) {
+          const cuadro=posicion%capacidad;
+          if (!cuadro && (indice || posicion)) pdf.addPage("a4",orientacion);
+          const x = cuadro%columnas*anchoCelda+(anchoCelda-ancho)/2;
+          const y = Math.floor(cuadro/columnas)*altoCelda+(altoCelda-alto)/2;
+          dibujarGuias(pdf,x,y,ancho,alto);
+          dibujarFicha(pdf,ficha,sku,foto,x,y,escala);
+          posicion++;
         }
-        const x = cuadro%2*105+(105-anchoFicha)/2;
-        const y = Math.floor(cuadro/2)*148.5+5;
-        dibujarGuias(pdf,x,y);
-        dibujarFicha(pdf,ficha,sku,foto,x,y);
-        posicion++;
       }
     }
     return pdf.output("blob");
@@ -6567,9 +6586,17 @@ const FichasEmpaque = (() => {
   }
 
   function actualizarResumen() {
-    const total = sesion?.filas.reduce((suma, fila) => suma + (fila.input.valueAsNumber || 0), 0) ?? 0;
+    const cantidades = new Map();
+    for (const fila of sesion?.filas ?? []) {
+      cantidades.set(fila.tamano,(cantidades.get(fila.tamano) || 0)+(fila.input.valueAsNumber || 0));
+    }
+    let total = 0;
+    let hojas = 0;
+    for (const [tamano,cantidad] of cantidades) {
+      total += cantidad;
+      hojas += Math.ceil(cantidad / formatosFicha[tamano].capacidad);
+    }
     const validas = sesion?.filas.every(fila => fila.input.validity.valid);
-    const hojas = Math.ceil(total / 4);
     el("Resumen").textContent = validas && total > 0
       ? `${total} ${total === 1 ? "ficha" : "fichas"} en ${hojas} ${hojas === 1 ? "hoja" : "hojas"} A4`
       : "";
@@ -6600,6 +6627,8 @@ const FichasEmpaque = (() => {
         const fila = el("Filas").insertRow();
         fila.insertCell().textContent = ficha.sku;
         fila.insertCell().textContent = ficha.nombre || ficha.sku;
+        const celdaTamano = fila.insertCell();
+        celdaTamano.textContent = ficha.tamano;
         const input = document.createElement("input");
         input.type = "number";
         input.min = "0";
@@ -6608,7 +6637,7 @@ const FichasEmpaque = (() => {
         input.value = ficha.cantidad;
         input.setAttribute("aria-label", "Copias de " + (ficha.nombre || ficha.sku) + " (" + ficha.sku + ")");
         fila.insertCell().append(input);
-        return {...ficha, input};
+        return {...ficha, input, celdaTamano};
       });
       el("Tabla").hidden = !actual.filas.length;
       el("Estado").textContent = actual.filas.length
@@ -6641,6 +6670,10 @@ const FichasEmpaque = (() => {
     try {
       const catalogo = await cargarCatalogo();
       if (sesion !== actual) return;
+      for (const fila of actual.filas) {
+        const ficha = catalogo.get(fila.sku);
+        if (ficha) fila.celdaTamano.textContent = fila.tamano = ficha.tamano;
+      }
       const datos = await Promise.all(fichas.map(async item => {
         const ficha = catalogo.get(item.sku);
         if (!ficha) return {...item};
@@ -6665,7 +6698,7 @@ const FichasEmpaque = (() => {
       if (faltantes.length) avisos.push("SKU fuera de Tienda Mayorista: " + faltantes.join(", ") + ".");
       if (sinFoto.length) avisos.push("Fotos que no se pudieron cargar: " + sinFoto.join(", ") + ".");
       if (usoK.length) avisos.push("Se usó la columna K para: " + usoK.join(", ") + ".");
-      el("Estado").textContent = ["PDF listo. Imprimí en A4 vertical a tamaño real (100 %).",...avisos].join(" ");
+      el("Estado").textContent = ["PDF listo. Imprimí en A4 a tamaño real (100 %) y dejá que el lector de PDF elija la orientación de cada página.",...avisos].join(" ");
       el("Abrir").focus();
     } catch (error) {
       if (sesion !== actual) return;
