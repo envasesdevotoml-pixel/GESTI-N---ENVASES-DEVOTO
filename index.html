@@ -6295,11 +6295,12 @@ const FichasEmpaque = (() => {
       const nombre = leer("producto");
       if (!sku || !nombre) continue;
       if (fichas.has(sku) && normalizarBusqueda(leer("activo")) !== "si") continue;
+      const opcionFicha = normalizarBusqueda(leer("tamanodeficha"));
       fichas.set(sku,{
         nombre,modelo:leer("modelo"),seccion:leer("seccion") || leer("categoria"),
         descripcion:leer("descripcion"),medidas:leer("medida"),material:leer("estructura"),
         colores:leer("coloresdisponibles"),codigo:leer("codigobarra"),
-        tamano:tamanos.get(normalizarBusqueda(leer("tamanodeficha"))) || "Normal",
+        tamano:opcionFicha === "no imprimir" || opcionFicha === "no" ? null : tamanos.get(opcionFicha) || "Normal",
         etiquetas:normalizarBusqueda(leer("etiquetasincluidas")) === "si",
         fotoK:fila[10]?.trim() || "",fotoL:fila[11]?.trim() || ""
       });
@@ -6317,11 +6318,16 @@ const FichasEmpaque = (() => {
   function agruparLineas(lineas, catalogo) {
     const disponibles = new Map();
     const faltantes = new Set();
+    const excluidas = new Set();
     for (const linea of lineas.filter(Boolean)) {
       const sku = String(linea.sku ?? "").trim().toUpperCase();
       const ficha = catalogo.get(sku);
       if (!ficha) {
         faltantes.add([sku,linea.producto || linea.nombre].filter(Boolean).join(" · ") || "Producto sin SKU");
+        continue;
+      }
+      if (ficha.tamano === null) {
+        excluidas.add(sku);
         continue;
       }
       if (!disponibles.has(sku)) {
@@ -6331,7 +6337,7 @@ const FichasEmpaque = (() => {
       const cantidad = Number(linea.cantidad);
       if (Number.isSafeInteger(cantidad) && cantidad > 0) disponibles.get(sku).cantidad += cantidad;
     }
-    return {disponibles:[...disponibles.values()], faltantes:[...faltantes]};
+    return {disponibles:[...disponibles.values()], faltantes:[...faltantes], excluidas};
   }
 
   async function descargarFoto(url) {
@@ -6618,7 +6624,7 @@ const FichasEmpaque = (() => {
     try {
       const [lineas, catalogo] = await Promise.all([cargarLineas(), cargarCatalogo()]);
       if (sesion !== actual) return;
-      const {disponibles, faltantes} = agruparLineas(lineas, catalogo);
+      const {disponibles, faltantes, excluidas} = agruparLineas(lineas, catalogo);
       if (faltantes.length) {
         el("Faltantes").textContent = "Sin ficha disponible: " + faltantes.join("; ");
         el("Faltantes").hidden = false;
@@ -6640,9 +6646,12 @@ const FichasEmpaque = (() => {
         return {...ficha, input, celdaTamano};
       });
       el("Tabla").hidden = !actual.filas.length;
-      el("Estado").textContent = actual.filas.length
+      const mensaje = actual.filas.length
         ? "Podés cambiar la cantidad de copias o poner 0 para omitir un producto."
         : "No hay fichas disponibles para imprimir.";
+      el("Estado").textContent = excluidas.size
+        ? mensaje + " Productos marcados como «No imprimir»: " + [...excluidas].join(", ") + "."
+        : mensaje;
       actualizarResumen();
     } catch (error) {
       if (sesion !== actual) return;
@@ -6660,8 +6669,6 @@ const FichasEmpaque = (() => {
     evento.preventDefault();
     if (el("Generar").disabled || !sesion || sesion.generando) return;
     const actual = sesion;
-    const fichas = actual.filas.map(({sku,input}) => ({sku,cantidad:input.valueAsNumber}))
-      .filter(ficha => ficha.cantidad > 0);
     actual.generando = true;
     for (const fila of actual.filas) fila.input.disabled = true;
     actualizarResumen();
@@ -6670,9 +6677,26 @@ const FichasEmpaque = (() => {
     try {
       const catalogo = await cargarCatalogo();
       if (sesion !== actual) return;
-      for (const fila of actual.filas) {
+      const excluidas = [];
+      actual.filas = actual.filas.filter(fila => {
         const ficha = catalogo.get(fila.sku);
+        if (ficha?.tamano === null) {
+          excluidas.push(fila.sku);
+          fila.input.closest("tr").remove();
+          return false;
+        }
         if (ficha) fila.celdaTamano.textContent = fila.tamano = ficha.tamano;
+        return true;
+      });
+      el("Tabla").hidden = !actual.filas.length;
+      const fichas = actual.filas.map(({sku,input}) => ({sku,cantidad:input.valueAsNumber}))
+        .filter(ficha => ficha.cantidad > 0);
+      const avisoExcluidas = excluidas.length
+        ? " Productos marcados como «No imprimir»: " + excluidas.join(", ") + "."
+        : "";
+      if (!fichas.length) {
+        el("Estado").textContent = "No hay fichas seleccionadas para imprimir." + avisoExcluidas;
+        return;
       }
       const datos = await Promise.all(fichas.map(async item => {
         const ficha = catalogo.get(item.sku);
@@ -6692,6 +6716,7 @@ const FichasEmpaque = (() => {
       el("Descargar").download = actual.archivo.replace(/[^\w.-]/g,"_") + ".pdf";
       el("Abrir").hidden = el("Descargar").hidden = false;
       const avisos = [];
+      if (avisoExcluidas) avisos.push(avisoExcluidas.trim());
       const faltantes = datos.filter(item => !item.ficha).map(item => item.sku);
       const sinFoto = listas.filter(item => item.sinFoto).map(item => item.sku);
       const usoK = listas.filter(item => item.usoK).map(item => item.sku);
